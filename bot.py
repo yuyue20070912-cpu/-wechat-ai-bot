@@ -349,6 +349,23 @@ button{border:0;background:#111;color:white;cursor:pointer;margin:6px 4px 6px 0}
 button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;border:1px solid #ddd;padding:12px;border-radius:10px;white-space:pre-wrap}
 .msg{padding:9px;margin:7px 0;border-radius:9px;background:#f2f2f2;overflow-wrap:anywhere}
 .hidden{display:none}#notice{color:#a02020;min-height:24px}
+#membership{margin:18px 0;padding:17px;border:1px solid #e6e7ec;border-radius:18px;background:linear-gradient(160deg,#fff,#f5f7ff)}
+#membership summary{font-weight:750;font-size:19px;cursor:pointer}
+.member-intro{font-size:13px;color:#687080;margin:8px 0 14px}
+.member-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0}
+.member-card{border:1px solid #e4e5ed;border-radius:15px;padding:13px;background:white;min-width:0}
+.member-card.featured{background:#161b29;color:white;border-color:#161b29}
+.member-card h3{font-size:14px;margin:0 0 9px}
+.member-card .price{font-size:27px;font-weight:800;letter-spacing:-1px}
+.member-card .price small{font-size:12px;font-weight:400}
+.member-card p{font-size:12px;line-height:1.6;margin:8px 0 0}
+#membership select{font:inherit;width:100%;margin:6px 0 12px;padding:12px;border:1px solid #ddd;border-radius:10px;background:white}
+#membership label{display:block;font-size:13px;font-weight:600}
+#membership button{width:100%;margin:6px 0}
+#ordersBtn{background:#e9eaf0;color:#151515}
+#orderResult{padding:12px;border-radius:12px;background:#f0f2f6;font-size:13px;line-height:1.7;margin-top:10px}
+.member-safe{font-size:12px;color:#747b8b;line-height:1.6}
+@media(max-width:390px){.member-cards{grid-template-columns:1fr}}
 </style></head><body><main><h1>fishyeah Chat</h1>
 <section id="auth"><h2 id="authTitle">登录</h2>
 <input id="phone" type="tel" inputmode="numeric" maxlength="11" autocomplete="tel" placeholder="中国大陆手机号">
@@ -357,14 +374,21 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <p style="font-size:13px;color:#666">当前不发送短信验证码，手机号未经验证；请勿使用他人的号码注册。</p></section>
 <section id="chatArea" class="hidden"><p>已登录：<span id="who"></span> <button id="logoutBtn">退出</button></p>
 <details id="security"><summary>账号安全 · 修改密码</summary><input id="oldPassword" type="password" autocomplete="current-password" placeholder="当前密码"><input id="newPassword" type="password" autocomplete="new-password" placeholder="新密码（至少10位，包含不同类型字符）"><button id="changePasswordBtn">修改密码</button></details>
-<details id="membership"><summary>会员中心 · 查看套餐与订单</summary>
-<p>普通会员：¥9.9／30天，300条消息；高级会员：¥19.9／30天，1000条消息。</p>
-<p>当前为人工审核收款模式，付款前请先创建订单。付款后不会自动开通，须等待管理员核实。</p>
-<label>会员套餐 <select id="memberPlan"><option value="basic">普通会员 ¥9.9</option><option value="pro">高级会员 ¥19.9</option></select></label>
-<label>支付方式 <select id="payMethod"><option value="alipay">支付宝</option><option value="wechat">微信支付</option></select></label>
-<button id="createOrderBtn">生成待付款订单</button><button id="ordersBtn">查询我的订单</button>
-<div id="orderResult" style="white-space:pre-wrap;overflow-wrap:anywhere"></div>
-<p style="font-size:13px;color:#666">付款二维码暂未上线，请勿在此阶段转账。</p></details>
+<details id="membership"><summary>✦ fishyeah 会员中心</summary>
+<p class="member-intro">解锁更多对话额度 · 轻松使用 fishyeah Chat</p>
+<div class="member-cards">
+<div class="member-card"><h3>基础会员</h3><div class="price">¥9.9<small> / 30天</small></div><p>300 条 AI 消息<br>适合日常学习和轻度使用</p></div>
+<div class="member-card featured"><h3>✦ 高级会员</h3><div class="price">¥19.9<small> / 30天</small></div><p>1,000 条 AI 消息<br>适合经常使用 AI 的用户</p></div>
+</div>
+<label for="memberPlan">选择套餐</label>
+<select id="memberPlan"><option value="basic">基础会员 · ¥9.9</option><option value="pro">高级会员 · ¥19.9</option></select>
+<label for="payMethod">支付方式</label>
+<select id="payMethod"><option value="alipay">支付宝</option><option value="wechat">微信支付</option></select>
+<button id="createOrderBtn">创建会员订单</button>
+<button id="ordersBtn">查看我的订单</button>
+<div id="orderResult" aria-live="polite">订单创建后将在这里显示订单信息。</div>
+<p class="member-safe">支付功能正在准备中。暂时不要付款；人工核实到账后才会开通会员，不会自动扣费。</p>
+</details>
 <p id="quotaInfo">免费版每天可发送5条消息（UTC 00:00重置）</p><div id="chat"><div class="msg">🤖 你好，我是 fishyeah Chat。</div></div>
 <input id="message" placeholder="输入你的问题..."><button id="sendBtn">发送</button></section>
 <p id="notice" role="status"></p></main>
