@@ -107,6 +107,7 @@ def init_db():
                     amount_fen INTEGER NOT NULL,
                     payment_method TEXT NOT NULL CHECK (payment_method IN ('wechat','alipay')),
                     reference TEXT UNIQUE NOT NULL,
+                    payer_note TEXT,
                     status TEXT NOT NULL DEFAULT 'pending',
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
@@ -197,6 +198,30 @@ def create_membership_order():
         return jsonify(error="订单创建失败"),503
 
 
+@app.post("/membership/orders/<int:order_id>/payment-note")
+@require_login
+def submit_payment_note(order_id):
+    data=request.get_json(silent=True) or {}
+    note=data.get("note")
+    if not isinstance(note,str) or not 6 <= len(note.strip()) <= 160:
+        return jsonify(error="请填写支付时间及支付凭证信息（6-160字）"),400
+    try:
+        init_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE membership_orders SET payer_note=%s
+                    WHERE id=%s AND user_id=%s AND status='pending'
+                    RETURNING id
+                """,(note.strip(),order_id,session["user_id"]))
+                if cur.fetchone() is None:
+                    return jsonify(error="订单不存在或已审核"),404
+        return jsonify(ok=True,status="pending")
+    except Exception:
+        app.logger.exception("Payment note failed")
+        return jsonify(error="提交付款信息失败"),503
+
+
 @app.get("/membership/orders")
 @require_login
 def membership_orders():
@@ -231,14 +256,14 @@ def admin_membership_orders():
         with db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT o.id,u.phone,o.plan,o.amount_fen,o.payment_method,o.reference,o.status,o.created_at
+                    SELECT o.id,u.phone,o.plan,o.amount_fen,o.payment_method,o.reference,o.status,o.created_at,o.payer_note
                     FROM membership_orders o JOIN users u ON u.id=o.user_id
                     WHERE o.status='pending' ORDER BY o.created_at ASC LIMIT 100
                 """)
                 rows=cur.fetchall()
         return jsonify(orders=[dict(id=r[0],phone=r[1],plan=r[2],amount_cny=r[3]/100,
                                     payment_method=r[4],reference=r[5],status=r[6],
-                                    created_at=r[7].isoformat()) for r in rows])
+                                    created_at=r[7].isoformat(),payer_note=r[8]) for r in rows])
     except Exception:
         app.logger.exception("Admin order lookup failed")
         return jsonify(error="订单查询失败"),503
@@ -401,7 +426,7 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <select id="payMethod"><option value="alipay">支付宝</option><option value="wechat">微信支付</option></select>
 <button id="createOrderBtn">创建会员订单</button>
 <button id="ordersBtn">查看我的订单</button>
-<div id="orderResult" aria-live="polite">订单创建后将在这里显示订单信息。</div><div id="qrPanel" class="hidden" style="text-align:center;margin:12px 0"><p id="qrTitle"></p><img id="paymentQR" alt="收款二维码" width="240" height="240" style="max-width:100%;image-rendering:pixelated;border-radius:12px"><p class="member-safe">请先核对金额，付款时备注订单编号；管理员核实后开通会员。</p></div>
+<div id="orderResult" aria-live="polite">订单创建后将在这里显示订单信息。</div><div id="qrPanel" class="hidden" style="text-align:center;margin:12px 0"><p id="qrTitle"></p><img id="paymentQR" alt="收款二维码" width="240" height="240" style="max-width:100%;image-rendering:pixelated;border-radius:12px"><p class="member-safe">请先核对金额。付款后填写支付时间和凭证信息，等待人工核实。</p></div><div id="paymentProof" class="hidden"><label for="payerNote">付款信息（付款时间、支付平台订单号等）</label><input id="payerNote" maxlength="160" placeholder="例：10月17日 20:30，支付订单号末6位123456"><button id="submitProofBtn">我已付款，提交核实信息</button></div>
 <p class="member-safe">当前使用个人收款码人工审核：请核对收款人及金额，付款后保存支付凭证；到账确认后才开通会员，不会自动扣费。</p>
 </details>
 <p id="quotaInfo">免费版每天可发送5条消息（UTC 00:00重置）</p><div id="chat"><div class="msg">🤖 你好，我是 fishyeah Chat。</div></div>
@@ -409,6 +434,7 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <p id="notice" role="status"></p></main>
 <script>
 const $=id=>document.getElementById(id);
+let activeOrderId=null;
 const notice=msg=>$("notice").textContent=msg;
 async function api(path,data){
  const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data||{})});
@@ -437,8 +463,19 @@ $("createOrderBtn").onclick=async()=>{
   $("qrTitle").textContent=($("payMethod").value==="alipay"?"支付宝":"微信支付")+" · ¥"+d.amount_cny;
   $("paymentQR").src="/membership/payment-qr/"+$("payMethod").value;
   $("qrPanel").classList.remove("hidden");
+  activeOrderId=d.order_id;$("paymentProof").classList.remove("hidden");
  }catch(e){notice(e.message);}
  finally{$("createOrderBtn").disabled=false;}
+};
+$("submitProofBtn").onclick=async()=>{
+ if(!activeOrderId){notice("请先创建订单");return;}
+ $("submitProofBtn").disabled=true;
+ try{
+  await api("/membership/orders/"+activeOrderId+"/payment-note",{note:$("payerNote").value.trim()});
+  $("orderResult").textContent="付款信息已提交，订单 #"+activeOrderId+" 正在等待人工核实。";
+  $("paymentProof").classList.add("hidden");$("qrPanel").classList.add("hidden");
+ }catch(e){notice(e.message);}
+ finally{$("submitProofBtn").disabled=false;}
 };
 $("ordersBtn").onclick=async()=>{
  try{
