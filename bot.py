@@ -204,6 +204,10 @@ def create_membership_order():
         init_db()
         with db_connection() as conn:
             with conn.cursor() as cur:
+                cur.execute("SELECT id,plan,payment_method,amount_fen FROM membership_orders WHERE user_id=%s AND status='pending' ORDER BY created_at DESC LIMIT 1 FOR UPDATE", (session["user_id"],))
+                existing=cur.fetchone()
+                if existing:
+                    return jsonify(error="你已有待审核订单 #"+str(existing[0])+"，请勿重复付款。请先联系管理员处理原订单。"),409
                 cur.execute("INSERT INTO membership_orders (user_id,plan,amount_fen,payment_method,reference) VALUES (%s,%s,%s,%s,%s) RETURNING id",
                             (session["user_id"],plan,PAID_PLANS[plan]["price_cny_fen"],method,reference))
                 order_id = cur.fetchone()[0]
@@ -514,7 +518,7 @@ async function api(path,data){
  if(!response.ok)throw Error(body.error||"请求失败");
  return body;
 }
-async function refreshMembership(){try{const r=await fetch("/membership/plans");if(r.ok){const d=await r.json();if(!d.payments_enabled){$("createOrderBtn").disabled=true;$("createOrderBtn").textContent="支付即将开放";$("orderResult").textContent="会员页面已上线，支付尚未开放。请勿转账。";}}}catch(e){}}
+async function refreshMembership(){try{const r=await fetch("/membership/plans");if(r.ok){const d=await r.json();if(!d.payments_enabled){$("createOrderBtn").disabled=true;$("createOrderBtn").textContent="支付即将开放";$("orderResult").textContent="会员页面已上线，支付尚未开放。请勿转账。";}else{$("createOrderBtn").disabled=false;$("createOrderBtn").textContent="创建会员订单";}}}catch(e){}}
 async function refreshQuota(){try{const r=await fetch("/account/usage");if(r.ok){const d=await r.json();$("quotaInfo").textContent=(d.plan==="free"?"免费版":"会员 "+d.plan)+"：剩余 "+d.remaining+"/"+d.limit+" 条"+(d.plan==="free"?"（UTC 00:00重置）":"（当前会员周期）");}}catch(e){}}
 function showUser(phone){if(phone){refreshQuota();refreshMembership();}$("auth").classList.toggle("hidden",!!phone);$("chatArea").classList.toggle("hidden",!phone);$("who").textContent=phone||"";notice("");}
 async function authenticate(mode){
