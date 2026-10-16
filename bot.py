@@ -18,7 +18,7 @@ app.config.update(
     PERMANENT_SESSION_LIFETIME=timedelta(days=7),
     MAX_CONTENT_LENGTH=16 * 1024,
 )
-MODEL = os.getenv("OPENAI_MODEL", "gpt-6-luna")
+MODEL = os.getenv("OPENAI_MODEL", "gpt-6")
 PHONE_PATTERN = re.compile(r"^1[3-9]\d{9}$")
 
 
@@ -127,7 +127,7 @@ function showUser(phone){$("auth").classList.toggle("hidden",!!phone);$("chatAre
 async function authenticate(mode){
  const phone=$("phone").value.trim(),password=$("password").value;
  if(!/^1[3-9]\d{9}$/.test(phone)){notice("请输入正确的11位中国大陆手机号");return;}
- if(password.length<8){notice("密码至少8位");return;}
+ if(mode==="register" && (password.length<10 || /^\\d+$/.test(password) || /^[a-zA-Z]+$/.test(password))){notice("新密码至少10位，不能只包含数字或字母");return;}\n if(mode==="login" && password.length<8){notice("请输入密码");return;}
  $("loginBtn").disabled=$("registerBtn").disabled=true;
  try{const result=await api("/auth/"+mode,{phone,password});showUser(result.phone);$("password").value="";}
  catch(err){notice(err.message);}
