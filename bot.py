@@ -1,16 +1,12 @@
 import os
 
 from flask import Flask, jsonify, request, send_from_directory
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from openai import OpenAI
-from auth import setup_auth, login_required, current_user, spend_credit, refund_credit
+from auth import setup_auth, login_required, current_user, spend_credit, refund_credit, auth_limiter as limiter
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024
 setup_auth(app)
-# For production across multiple workers, configure RATELIMIT_STORAGE_URI to Redis.
-limiter = Limiter(get_remote_address, app=app, default_limits=[], storage_uri=os.getenv("RATELIMIT_STORAGE_URI", "memory://"))
 
 client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
