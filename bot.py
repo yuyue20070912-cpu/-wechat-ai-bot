@@ -264,6 +264,69 @@ def require_admin(fn):
     return wrapper
 
 
+@app.get("/admin")
+def admin_dashboard():
+    response = app.make_response("""<!doctype html><html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>fishyeah · 订单审核</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f6f8;color:#15171b;font:15px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:640px;margin:auto;padding:22px 16px 60px}h1{font-size:25px;margin:10px 0 6px}p{line-height:1.5;color:#68717d}
+.panel,.order{background:#fff;border:1px solid #e8eaf0;border-radius:18px;padding:17px;margin:14px 0;box-shadow:0 3px 12px #10182808}
+label{display:block;font-size:13px;font-weight:650;margin:14px 0 6px}
+input{width:100%;font:inherit;padding:12px;border:1px solid #dce0e7;border-radius:10px}
+button{border:0;border-radius:11px;padding:12px 16px;font:inherit;font-weight:650;background:#191d27;color:white;cursor:pointer;margin:10px 6px 0 0}
+button.secondary{background:#eef0f4;color:#171b25}button.danger{background:#a52b36}
+button:disabled{opacity:.45}.meta{font-size:13px;color:#657080;line-height:1.9;overflow-wrap:anywhere}
+strong{font-size:18px}.empty{padding:24px 0;text-align:center;color:#7a8290}
+</style></head><body><main>
+<h1>fishyeah · 订单审核</h1><p>仅管理员使用。核对微信或支付宝实际到账记录后，再批准订单。</p>
+<section class="panel"><label for="token">管理员密钥</label><input id="token" type="password" autocomplete="off" placeholder="输入 Render 中的 ADMIN_REVIEW_TOKEN">
+<button id="load">查看待审核订单</button><p id="status" role="status">密钥仅用于本次页面操作，不会保存到浏览器。</p></section>
+<section id="orders"></section>
+</main><script>
+const el=id=>document.getElementById(id);
+async function call(path,method="GET",body){
+ const token=el("token").value.trim();
+ if(!token)throw Error("请先输入管理员密钥");
+ const res=await fetch(path,{method,headers:{"X-Admin-Token":token,...(body?{"Content-Type":"application/json"}:{})},body:body?JSON.stringify(body):undefined,cache:"no-store"});
+ const d=await res.json();if(!res.ok)throw Error(d.error||"操作失败");return d;
+}
+function field(container,title,value){const div=document.createElement("div");div.className="meta";div.textContent=title+"："+(value??"未填写");container.appendChild(div);}
+async function load(){
+ el("status").textContent="正在查询…";el("orders").replaceChildren();
+ try{
+  const d=await call("/admin/membership/orders");
+  el("status").textContent="待审核订单："+d.orders.length+" 笔";
+  if(!d.orders.length){const e=document.createElement("p");e.className="empty";e.textContent="暂无待审核订单";el("orders").appendChild(e);}
+  for(const o of d.orders){
+   const card=document.createElement("article");card.className="order";
+   const h=document.createElement("strong");h.textContent="订单 #"+o.id+" · ¥"+o.amount_cny;card.appendChild(h);
+   field(card,"会员套餐",o.plan==="pro"?"高级会员":"基础会员");
+   field(card,"手机号",o.phone);field(card,"支付方式",o.payment_method==="alipay"?"支付宝":"微信");
+   field(card,"付款信息",o.payer_note);field(card,"订单参考号",o.reference);field(card,"创建时间",o.created_at);
+   const label=document.createElement("label");label.textContent="核实后的支付流水号";card.appendChild(label);
+   const input=document.createElement("input");input.placeholder="至少 6 位，须与真实到账记录一致";card.appendChild(input);
+   const yes=document.createElement("button");yes.textContent="确认到账并开通";card.appendChild(yes);
+   const no=document.createElement("button");no.textContent="拒绝订单";no.className="danger";card.appendChild(no);
+   async function review(decision){
+    if(decision==="approve" && input.value.trim().length<6){alert("请先填写核实后的支付流水号");return;}
+    if(!confirm(decision==="approve"?"已在收款账户核实到账且金额正确，确认开通会员？":"确定拒绝该订单？"))return;
+    yes.disabled=true;no.disabled=true;
+    try{await call("/admin/membership/orders/"+o.id+"/review","POST",{decision,payment_reference:input.value.trim()});await load();}
+    catch(e){alert(e.message);yes.disabled=false;no.disabled=false;}
+   }
+   yes.onclick=()=>review("approve");no.onclick=()=>review("reject");el("orders").appendChild(card);
+  }
+ }catch(e){el("status").textContent=e.message;}
+}
+el("load").onclick=load;
+</script></body></html>""")
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
+
+
 @app.get("/admin/membership/orders")
 @require_admin
 def admin_membership_orders():
