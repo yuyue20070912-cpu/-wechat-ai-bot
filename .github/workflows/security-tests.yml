@@ -2,7 +2,7 @@ name: Security smoke tests
 
 on:
   push:
-    branches: [security-hardening-20261016]
+    branches: [security-hardening-20261016, phone-password-auth-20261016]
   pull_request:
     branches: [main]
 
@@ -19,3 +19,6 @@ jobs:
         env:
           OPENAI_API_KEY: test-only-key
           OPENAI_MODEL: gpt-4o-mini
+          SECRET_KEY: testing-only-secret-key-32-characters-minimum
+          DATABASE_URL: sqlite://
+          COOKIE_SECURE: 'false'
