@@ -25,6 +25,9 @@ MODEL = os.getenv("OPENAI_MODEL", "gpt-6-luna")
 FREE_DAILY_MESSAGES = 5  # UTC calendar day
 PAID_PLANS = {"basic": {"price_cny_fen": 990, "messages": 300}, "pro": {"price_cny_fen": 1990, "messages": 1000}}
 PHONE_PATTERN = re.compile(r"^1[3-9]\d{9}$")
+def payments_ready():
+    return len(os.getenv("ADMIN_REVIEW_TOKEN", "")) >= 32
+
 PAYMENT_QR_CONTENT = {"alipay": "https://qr.alipay.com/fkx10355uzbazrfvvys4232", "wechat": "wxp://f2f0HdmMjE2AuF0qjzSMF2YbY-BSZrmgPWRK5RjtWFpWH0M"}
 
 
@@ -167,6 +170,8 @@ def require_login(fn):
 @app.get("/membership/payment-qr/<method>")
 @require_login
 def payment_qr(method):
+    if not payments_ready():
+        return jsonify(error="支付暂未开放"),503
     if method not in PAYMENT_QR_CONTENT:
         return jsonify(error="不支持的支付方式"),404
     img=qrcode.make(PAYMENT_QR_CONTENT[method])
@@ -181,13 +186,15 @@ def membership_plans():
     return jsonify(plans=[
         {"id":"free","price_cny_fen":0,"messages_per_day":FREE_DAILY_MESSAGES},
         *[{"id":k,**v,"period_days":30} for k,v in PAID_PLANS.items()]
-    ], payments_enabled=False)
+    ], payments_enabled=payments_ready())
 
 
 
 @app.post("/membership/orders")
 @require_login
 def create_membership_order():
+    if not payments_ready():
+        return jsonify(error="支付尚未开放，请稍后再试"),503
     data = request.get_json(silent=True) or {}
     plan, method = data.get("plan"), data.get("payment_method")
     if plan not in PAID_PLANS or method not in ("wechat", "alipay"):
@@ -444,8 +451,9 @@ async function api(path,data){
  if(!response.ok)throw Error(body.error||"请求失败");
  return body;
 }
+async function refreshMembership(){try{const r=await fetch("/membership/plans");if(r.ok){const d=await r.json();if(!d.payments_enabled){$("createOrderBtn").disabled=true;$("createOrderBtn").textContent="支付即将开放";$("orderResult").textContent="会员页面已上线，支付尚未开放。请勿转账。";}}}catch(e){}}
 async function refreshQuota(){try{const r=await fetch("/account/usage");if(r.ok){const d=await r.json();$("quotaInfo").textContent=(d.plan==="free"?"免费版":"会员 "+d.plan)+"：剩余 "+d.remaining+"/"+d.limit+" 条"+(d.plan==="free"?"（UTC 00:00重置）":"（当前会员周期）");}}catch(e){}}
-function showUser(phone){if(phone)refreshQuota();$("auth").classList.toggle("hidden",!!phone);$("chatArea").classList.toggle("hidden",!phone);$("who").textContent=phone||"";notice("");}
+function showUser(phone){if(phone){refreshQuota();refreshMembership();}$("auth").classList.toggle("hidden",!!phone);$("chatArea").classList.toggle("hidden",!phone);$("who").textContent=phone||"";notice("");}
 async function authenticate(mode){
  const phone=$("phone").value.trim(),password=$("password").value;
  if(!/^1[3-9]\d{9}$/.test(phone)){notice("请输入正确的11位中国大陆手机号");return;}
