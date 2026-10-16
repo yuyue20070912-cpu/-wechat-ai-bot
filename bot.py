@@ -18,7 +18,7 @@ app.config.update(
     PERMANENT_SESSION_LIFETIME=timedelta(days=7),
     MAX_CONTENT_LENGTH=16 * 1024,
 )
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+MODEL = os.getenv("OPENAI_MODEL", "gpt-6-luna")
 FREE_DAILY_MESSAGES = 5  # UTC calendar day; paid plans not enabled yet
 PHONE_PATTERN = re.compile(r"^1[3-9]\d{9}$")
 
