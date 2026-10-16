@@ -1,7 +1,7 @@
 import os
 import re
 from datetime import timedelta
-from secrets import token_urlsafe
+from secrets import token_urlsafe, compare_digest
 from hashlib import sha256
 from functools import wraps
 
@@ -195,6 +195,76 @@ def membership_orders():
     except Exception:
         app.logger.exception("Membership order list failed")
         return jsonify(error="查询订单失败"),503
+
+
+def require_admin(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        expected = os.getenv("ADMIN_REVIEW_TOKEN", "")
+        provided = request.headers.get("X-Admin-Token", "")
+        if len(expected) < 32 or not provided or not compare_digest(provided, expected):
+            return jsonify(error="无权访问"), 403
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+@app.get("/admin/membership/orders")
+@require_admin
+def admin_membership_orders():
+    try:
+        init_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT o.id,u.phone,o.plan,o.amount_fen,o.payment_method,o.reference,o.status,o.created_at
+                    FROM membership_orders o JOIN users u ON u.id=o.user_id
+                    WHERE o.status='pending' ORDER BY o.created_at ASC LIMIT 100
+                """)
+                rows=cur.fetchall()
+        return jsonify(orders=[dict(id=r[0],phone=r[1],plan=r[2],amount_cny=r[3]/100,
+                                    payment_method=r[4],reference=r[5],status=r[6],
+                                    created_at=r[7].isoformat()) for r in rows])
+    except Exception:
+        app.logger.exception("Admin order lookup failed")
+        return jsonify(error="订单查询失败"),503
+
+
+@app.post("/admin/membership/orders/<int:order_id>/review")
+@require_admin
+def admin_review_membership_order(order_id):
+    data=request.get_json(silent=True) or {}
+    decision=data.get("decision")
+    payment_reference=data.get("payment_reference")
+    if decision not in ("approve","reject"):
+        return jsonify(error="无效审核结果"),400
+    if decision=="approve" and (not isinstance(payment_reference,str) or not 6 <= len(payment_reference) <= 128):
+        return jsonify(error="请填写核实过的支付流水号"),400
+    try:
+        init_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT user_id,plan,amount_fen,status FROM membership_orders WHERE id=%s FOR UPDATE",(order_id,))
+                row=cur.fetchone()
+                if not row:
+                    return jsonify(error="订单不存在"),404
+                user_id,plan,amount,status=row
+                if status!="pending":
+                    return jsonify(error="订单已经审核，不能重复操作"),409
+                if amount!=PAID_PLANS[plan]["price_cny_fen"]:
+                    return jsonify(error="订单金额不匹配"),409
+                if decision=="approve":
+                    cur.execute("""
+                        INSERT INTO subscriptions (user_id,plan,starts_at,ends_at,message_limit,payment_reference)
+                        VALUES (%s,%s,NOW(),NOW()+INTERVAL '30 days',%s,%s)
+                    """,(user_id,plan,PAID_PLANS[plan]["messages"],payment_reference))
+                cur.execute("UPDATE membership_orders SET status=%s WHERE id=%s",
+                            ("approved" if decision=="approve" else "rejected",order_id))
+        return jsonify(ok=True,status="approved" if decision=="approve" else "rejected")
+    except psycopg.errors.UniqueViolation:
+        return jsonify(error="该支付流水号已用于其他订单"),409
+    except Exception:
+        app.logger.exception("Order review failed")
+        return jsonify(error="订单审核失败"),503
 
 
 def reserve_free_message(user_id):
