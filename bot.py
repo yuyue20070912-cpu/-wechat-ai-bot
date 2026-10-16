@@ -2,11 +2,13 @@ import os
 import re
 from datetime import timedelta
 from secrets import token_urlsafe, compare_digest
+from io import BytesIO
+import qrcode
 from hashlib import sha256
 from functools import wraps
 
 import psycopg
-from flask import Flask, jsonify, request, send_from_directory, session
+from flask import Flask, jsonify, request, send_from_directory, send_file, session
 from openai import OpenAI
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -23,6 +25,7 @@ MODEL = os.getenv("OPENAI_MODEL", "gpt-6-luna")
 FREE_DAILY_MESSAGES = 5  # UTC calendar day
 PAID_PLANS = {"basic": {"price_cny_fen": 990, "messages": 300}, "pro": {"price_cny_fen": 1990, "messages": 1000}}
 PHONE_PATTERN = re.compile(r"^1[3-9]\d{9}$")
+PAYMENT_QR_CONTENT = {"alipay": "https://qr.alipay.com/fkx10355uzbazrfvvys4232", "wechat": "wxp://f2f0HdmMjE2AuF0qjzSMF2YbY-BSZrmgPWRK5RjtWFpWH0M"}
 
 
 def rate_limit(action, identity, max_attempts, minutes=15):
@@ -149,6 +152,18 @@ def refund_message(user_id, kind, subscription_id):
                 cur.execute("UPDATE subscriptions SET used=GREATEST(0,used-1) WHERE id=%s AND user_id=%s", (subscription_id,user_id))
     else:
         refund_free_message(user_id)
+
+
+@app.get("/membership/payment-qr/<method>")
+@require_login
+def payment_qr(method):
+    if method not in PAYMENT_QR_CONTENT:
+        return jsonify(error="不支持的支付方式"),404
+    img=qrcode.make(PAYMENT_QR_CONTENT[method])
+    buf=BytesIO()
+    img.save(buf,format="PNG")
+    buf.seek(0)
+    return send_file(buf,mimetype="image/png",max_age=300)
 
 
 @app.get("/membership/plans")
@@ -386,8 +401,8 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <select id="payMethod"><option value="alipay">支付宝</option><option value="wechat">微信支付</option></select>
 <button id="createOrderBtn">创建会员订单</button>
 <button id="ordersBtn">查看我的订单</button>
-<div id="orderResult" aria-live="polite">订单创建后将在这里显示订单信息。</div>
-<p class="member-safe">支付功能正在准备中。暂时不要付款；人工核实到账后才会开通会员，不会自动扣费。</p>
+<div id="orderResult" aria-live="polite">订单创建后将在这里显示订单信息。</div><div id="qrPanel" class="hidden" style="text-align:center;margin:12px 0"><p id="qrTitle"></p><img id="paymentQR" alt="收款二维码" width="240" height="240" style="max-width:100%;image-rendering:pixelated;border-radius:12px"><p class="member-safe">请先核对金额，付款时备注订单编号；管理员核实后开通会员。</p></div>
+<p class="member-safe">当前使用个人收款码人工审核：请核对收款人及金额，付款后保存支付凭证；到账确认后才开通会员，不会自动扣费。</p>
 </details>
 <p id="quotaInfo">免费版每天可发送5条消息（UTC 00:00重置）</p><div id="chat"><div class="msg">🤖 你好，我是 fishyeah Chat。</div></div>
 <input id="message" placeholder="输入你的问题..."><button id="sendBtn">发送</button></section>
@@ -418,7 +433,10 @@ $("createOrderBtn").onclick=async()=>{
  $("createOrderBtn").disabled=true;
  try{
   const d=await api("/membership/orders",{plan:$("memberPlan").value,payment_method:$("payMethod").value});
-  $("orderResult").textContent="订单编号："+d.order_id+"\\n金额：¥"+d.amount_cny+"\\n状态：待付款／待核实\\n目前二维码尚未上线，请勿付款。";
+  $("orderResult").textContent="订单编号："+d.order_id+"\\n金额：¥"+d.amount_cny+"\\n状态：等待人工核实。付款前请保存订单编号。";
+  $("qrTitle").textContent=($("payMethod").value==="alipay"?"支付宝":"微信支付")+" · ¥"+d.amount_cny;
+  $("paymentQR").src="/membership/payment-qr/"+$("payMethod").value;
+  $("qrPanel").classList.remove("hidden");
  }catch(e){notice(e.message);}
  finally{$("createOrderBtn").disabled=false;}
 };
