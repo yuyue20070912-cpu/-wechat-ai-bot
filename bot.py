@@ -11,7 +11,7 @@ MODEL = os.getenv("OPENAI_MODEL", "gpt-6-luna")
 
 @app.get("/")
 def home():
-    return "WeChat AI Bot is running."
+    return "fishyeah AI Bot is running."
 
 
 @app.get("/health")
