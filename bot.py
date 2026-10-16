@@ -357,6 +357,14 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <p style="font-size:13px;color:#666">当前不发送短信验证码，手机号未经验证；请勿使用他人的号码注册。</p></section>
 <section id="chatArea" class="hidden"><p>已登录：<span id="who"></span> <button id="logoutBtn">退出</button></p>
 <details id="security"><summary>账号安全 · 修改密码</summary><input id="oldPassword" type="password" autocomplete="current-password" placeholder="当前密码"><input id="newPassword" type="password" autocomplete="new-password" placeholder="新密码（至少10位，包含不同类型字符）"><button id="changePasswordBtn">修改密码</button></details>
+<details id="membership"><summary>会员中心 · 查看套餐与订单</summary>
+<p>普通会员：¥9.9／30天，300条消息；高级会员：¥19.9／30天，1000条消息。</p>
+<p>当前为人工审核收款模式，付款前请先创建订单。付款后不会自动开通，须等待管理员核实。</p>
+<label>会员套餐 <select id="memberPlan"><option value="basic">普通会员 ¥9.9</option><option value="pro">高级会员 ¥19.9</option></select></label>
+<label>支付方式 <select id="payMethod"><option value="alipay">支付宝</option><option value="wechat">微信支付</option></select></label>
+<button id="createOrderBtn">生成待付款订单</button><button id="ordersBtn">查询我的订单</button>
+<div id="orderResult" style="white-space:pre-wrap;overflow-wrap:anywhere"></div>
+<p style="font-size:13px;color:#666">付款二维码暂未上线，请勿在此阶段转账。</p></details>
 <p id="quotaInfo">免费版每天可发送5条消息（UTC 00:00重置）</p><div id="chat"><div class="msg">🤖 你好，我是 fishyeah Chat。</div></div>
 <input id="message" placeholder="输入你的问题..."><button id="sendBtn">发送</button></section>
 <p id="notice" role="status"></p></main>
@@ -381,6 +389,23 @@ async function authenticate(mode){
  catch(err){notice(err.message);}
  finally{$("loginBtn").disabled=$("registerBtn").disabled=false;}
 }
+
+$("createOrderBtn").onclick=async()=>{
+ $("createOrderBtn").disabled=true;
+ try{
+  const d=await api("/membership/orders",{plan:$("memberPlan").value,payment_method:$("payMethod").value});
+  $("orderResult").textContent="订单编号："+d.order_id+"\\n金额：¥"+d.amount_cny+"\\n状态：待付款／待核实\\n目前二维码尚未上线，请勿付款。";
+ }catch(e){notice(e.message);}
+ finally{$("createOrderBtn").disabled=false;}
+};
+$("ordersBtn").onclick=async()=>{
+ try{
+  const r=await fetch("/membership/orders");
+  const d=await r.json();
+  if(!r.ok)throw Error(d.error||"订单查询失败");
+  $("orderResult").textContent=d.orders.length?d.orders.map(o=>"订单 #"+o.id+" · "+o.plan+" · ¥"+o.amount_cny+" · "+o.status).join("\\n"):"暂无订单";
+ }catch(e){notice(e.message);}
+};
 $("changePasswordBtn").onclick=async()=>{
  const oldPassword=$("oldPassword").value,newPassword=$("newPassword").value;
  if(!oldPassword||newPassword.length<10){notice("请输入当前密码和至少10位的新密码");return;}
