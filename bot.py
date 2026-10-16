@@ -1,6 +1,6 @@
 import os
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from openai import OpenAI
 
 app = Flask(__name__)
@@ -8,7 +8,13 @@ app = Flask(__name__)
 client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 MODEL = os.getenv("OPENAI_MODEL", "gpt-6-luna")
 
-
+@app.get("/app-icon")
+def app_icon():
+    return send_from_directory(
+        app.root_path,
+        "C8671EEC-8C80-4721-B2CD-732CAE507F1C.png",
+        mimetype="image/png"
+    )
 @app.get("/")
 def home():
     return """
