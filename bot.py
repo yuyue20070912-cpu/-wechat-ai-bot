@@ -1,33 +1,42 @@
 import os
+
+from flask import Flask, jsonify, request
 from openai import OpenAI
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+app = Flask(__name__)
+
+client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+MODEL = os.getenv("OPENAI_MODEL", "gpt-6-luna")
 
 
-def ask_ai(message):
-    response = client.responses.create(
-        model="gpt-6-luna",
-        input=message
-    )
-    return response.output_text
+@app.get("/")
+def home():
+    return "WeChat AI Bot is running."
 
 
-def main():
-    print("AI 机器人启动成功！")
-    print("输入 quit 退出。")
+@app.get("/health")
+def health():
+    return jsonify({"status": "ok"})
 
-    while True:
-        message = input("你：")
 
-        if message.lower() == "quit":
-            break
+@app.post("/chat")
+def chat():
+    data = request.get_json(silent=True) or {}
+    message = data.get("message")
 
-        try:
-            answer = ask_ai(message)
-            print("机器人：", answer)
-        except Exception as e:
-            print("发生错误：", e)
+    if not isinstance(message, str) or not message.strip():
+        return jsonify({"error": "message is required"}), 400
+
+    try:
+        response = client.responses.create(
+            model=MODEL,
+            input=message.strip(),
+        )
+        return jsonify({"reply": response.output_text})
+    except Exception:
+        return jsonify({"error": "AI request failed"}), 500
 
 
 if __name__ == "__main__":
-    main()
+    port = int(os.getenv("PORT", "10000"))
+    app.run(host="0.0.0.0", port=port)
