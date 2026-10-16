@@ -111,6 +111,7 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <button id="loginBtn">登录</button><button id="registerBtn">注册新账号</button>
 <p style="font-size:13px;color:#666">当前不发送短信验证码，手机号未经验证；请勿使用他人的号码注册。</p></section>
 <section id="chatArea" class="hidden"><p>已登录：<span id="who"></span> <button id="logoutBtn">退出</button></p>
+<details id="security"><summary>账号安全 · 修改密码</summary><input id="oldPassword" type="password" autocomplete="current-password" placeholder="当前密码"><input id="newPassword" type="password" autocomplete="new-password" placeholder="新密码（至少10位，包含不同类型字符）"><button id="changePasswordBtn">修改密码</button></details>
 <div id="chat"><div class="msg">🤖 你好，我是 fishyeah Chat。</div></div>
 <input id="message" placeholder="输入你的问题..."><button id="sendBtn">发送</button></section>
 <p id="notice" role="status"></p></main>
@@ -127,12 +128,23 @@ function showUser(phone){$("auth").classList.toggle("hidden",!!phone);$("chatAre
 async function authenticate(mode){
  const phone=$("phone").value.trim(),password=$("password").value;
  if(!/^1[3-9]\d{9}$/.test(phone)){notice("请输入正确的11位中国大陆手机号");return;}
- if(mode==="register" && (password.length<10 || /^\\d+$/.test(password) || /^[a-zA-Z]+$/.test(password))){notice("新密码至少10位，不能只包含数字或字母");return;}\n if(mode==="login" && password.length<8){notice("请输入密码");return;}
+ if(mode==="register" && (password.length<10 || /^\\d+$/.test(password) || /^[a-zA-Z]+$/.test(password))){notice("新密码至少10位，不能只包含数字或字母");return;}
+ if(mode==="login" && password.length<8){notice("请输入密码");return;}
  $("loginBtn").disabled=$("registerBtn").disabled=true;
  try{const result=await api("/auth/"+mode,{phone,password});showUser(result.phone);$("password").value="";}
  catch(err){notice(err.message);}
  finally{$("loginBtn").disabled=$("registerBtn").disabled=false;}
 }
+$("changePasswordBtn").onclick=async()=>{
+ const oldPassword=$("oldPassword").value,newPassword=$("newPassword").value;
+ if(!oldPassword||newPassword.length<10){notice("请输入当前密码和至少10位的新密码");return;}
+ $("changePasswordBtn").disabled=true;
+ try{await api("/auth/change-password",{old_password:oldPassword,new_password:newPassword});
+ $("oldPassword").value=$("newPassword").value="";
+ showUser(null);notice("密码修改成功，请使用新密码重新登录");}
+ catch(err){notice(err.message);}
+ finally{$("changePasswordBtn").disabled=false;}
+};
 $("loginBtn").onclick=()=>authenticate("login");
 $("registerBtn").onclick=()=>authenticate("register");
 $("logoutBtn").onclick=async()=>{try{await api("/auth/logout");showUser(null);}catch(e){notice(e.message);}};
@@ -213,6 +225,36 @@ def login():
     except Exception:
         app.logger.exception("Login failed")
         return jsonify(error="登录暂时不可用，请稍后重试"), 503
+
+
+@app.post("/auth/change-password")
+@require_login
+def change_password():
+    data = request.get_json(silent=True) or {}
+    old_password, new_password = data.get("old_password"), data.get("new_password")
+    if not isinstance(old_password, str) or not isinstance(new_password, str):
+        return jsonify(error="请输入当前密码和新密码"), 400
+    if not 10 <= len(new_password) <= 128 or new_password.isdigit() or new_password.isalpha():
+        return jsonify(error="新密码至少10位，需包含不同类型字符"), 400
+    try:
+        init_db()
+        if not allow_auth("change_password", session["phone"]):
+            return jsonify(error="操作太频繁，请15分钟后重试"), 429
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT password_hash FROM users WHERE id=%s FOR UPDATE", (session["user_id"],))
+                row = cur.fetchone()
+                if not row or not check_password_hash(row[0], old_password):
+                    return jsonify(error="当前密码不正确"), 401
+                if check_password_hash(row[0], new_password):
+                    return jsonify(error="新密码不能与旧密码相同"), 400
+                cur.execute("UPDATE users SET password_hash=%s WHERE id=%s",
+                            (generate_password_hash(new_password), session["user_id"]))
+        session.clear()
+        return jsonify(ok=True)
+    except Exception:
+        app.logger.exception("Password change failed")
+        return jsonify(error="修改密码暂时不可用，请稍后重试"), 503
 
 
 @app.post("/auth/logout")
