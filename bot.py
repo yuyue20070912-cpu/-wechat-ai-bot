@@ -19,7 +19,8 @@ app.config.update(
     MAX_CONTENT_LENGTH=16 * 1024,
 )
 MODEL = os.getenv("OPENAI_MODEL", "gpt-6-luna")
-FREE_DAILY_MESSAGES = 5  # UTC calendar day; paid plans not enabled yet
+FREE_DAILY_MESSAGES = 5  # UTC calendar day
+PAID_PLANS = {"basic": {"price_cny_fen": 990, "messages": 300}, "pro": {"price_cny_fen": 1990, "messages": 1000}}
 PHONE_PATTERN = re.compile(r"^1[3-9]\d{9}$")
 
 
@@ -80,6 +81,71 @@ def init_db():
                 )
             """)
 
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS subscriptions (
+                    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    user_id BIGINT NOT NULL REFERENCES users(id),
+                    plan TEXT NOT NULL CHECK (plan IN ('basic', 'pro')),
+                    starts_at TIMESTAMPTZ NOT NULL,
+                    ends_at TIMESTAMPTZ NOT NULL,
+                    message_limit INTEGER NOT NULL CHECK (message_limit > 0),
+                    used INTEGER NOT NULL DEFAULT 0 CHECK (used >= 0),
+                    payment_reference TEXT UNIQUE NOT NULL,
+                    CHECK (ends_at > starts_at)
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_active ON subscriptions (user_id, ends_at DESC)")
+
+def get_active_subscription(user_id):
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, plan, ends_at, message_limit, used
+                FROM subscriptions
+                WHERE user_id=%s AND starts_at <= NOW() AND ends_at > NOW()
+                ORDER BY ends_at DESC, id DESC LIMIT 1
+            """, (user_id,))
+            return cur.fetchone()
+
+
+def reserve_message(user_id):
+    """Reserve a message atomically; paid users use period allowance, free users daily allowance."""
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, plan, message_limit FROM subscriptions
+                WHERE user_id=%s AND starts_at <= NOW() AND ends_at > NOW()
+                ORDER BY ends_at DESC, id DESC LIMIT 1 FOR UPDATE
+            """, (user_id,))
+            sub = cur.fetchone()
+            if sub:
+                cur.execute("""
+                    UPDATE subscriptions SET used=used+1
+                    WHERE id=%s AND used < message_limit RETURNING message_limit-used
+                """, (sub[0],))
+                row = cur.fetchone()
+                return ("paid", sub[0], row[0] if row else None)
+    used = reserve_free_message(user_id)
+    return ("free", None, FREE_DAILY_MESSAGES-used if used is not None else None)
+
+
+def refund_message(user_id, kind, subscription_id):
+    if kind == "paid":
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE subscriptions SET used=GREATEST(0,used-1) WHERE id=%s AND user_id=%s", (subscription_id,user_id))
+    else:
+        refund_free_message(user_id)
+
+
+@app.get("/membership/plans")
+def membership_plans():
+    return jsonify(plans=[
+        {"id":"free","price_cny_fen":0,"messages_per_day":FREE_DAILY_MESSAGES},
+        *[{"id":k,**v,"period_days":30} for k,v in PAID_PLANS.items()]
+    ], payments_enabled=False)
+
+
 
 def reserve_free_message(user_id):
     """Atomic quota reservation. False when five messages already reserved today (UTC)."""
@@ -128,6 +194,10 @@ def account_usage():
                 """, (session["user_id"],))
                 row = cur.fetchone()
         used = row[0] if row else 0
+        sub = get_active_subscription(session["user_id"])
+        if sub:
+            return jsonify(plan=sub[1], limit=sub[3], used=sub[4],
+                           remaining=max(0,sub[3]-sub[4]), expires_at=sub[2].isoformat())
         return jsonify(plan="free", limit=FREE_DAILY_MESSAGES,
                        used=used, remaining=max(0, FREE_DAILY_MESSAGES-used),
                        reset="00:00 UTC")
@@ -179,7 +249,7 @@ async function api(path,data){
  if(!response.ok)throw Error(body.error||"请求失败");
  return body;
 }
-async function refreshQuota(){try{const r=await fetch("/account/usage");if(r.ok){const d=await r.json();$("quotaInfo").textContent="免费版：今日剩余 "+d.remaining+"/"+d.limit+" 条（UTC 00:00重置）";}}catch(e){}}
+async function refreshQuota(){try{const r=await fetch("/account/usage");if(r.ok){const d=await r.json();$("quotaInfo").textContent=(d.plan==="free"?"免费版":"会员 "+d.plan)+"：剩余 "+d.remaining+"/"+d.limit+" 条"+(d.plan==="free"?"（UTC 00:00重置）":"（当前会员周期）");}}catch(e){}}
 function showUser(phone){if(phone)refreshQuota();$("auth").classList.toggle("hidden",!!phone);$("chatArea").classList.toggle("hidden",!phone);$("who").textContent=phone||"";notice("");}
 async function authenticate(mode){
  const phone=$("phone").value.trim(),password=$("password").value;
@@ -329,20 +399,20 @@ def chat():
     user_id = session["user_id"]
     try:
         init_db()
-        used = reserve_free_message(user_id)
+        kind, subscription_id, remaining = reserve_message(user_id)
     except Exception:
         app.logger.exception("Quota check failed")
         return jsonify(error="额度检查暂时不可用，请稍后再试"), 503
-    if used is None:
-        return jsonify(error="今天的5条免费消息已用完，请明天再试（UTC 00:00重置）"), 429
+    if remaining is None:
+        return jsonify(error="当前消息额度已用完，请等待重置或续费"), 429
     try:
         client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
         response = client.responses.create(model=MODEL, input=message.strip())
-        return jsonify(reply=response.output_text, remaining=FREE_DAILY_MESSAGES-used)
+        return jsonify(reply=response.output_text, remaining=remaining)
     except Exception:
         app.logger.exception("AI request failed")
         try:
-            refund_free_message(user_id)
+            refund_message(user_id, kind, subscription_id)
         except Exception:
             app.logger.exception("Quota refund failed")
         return jsonify(error="AI 请求失败，请稍后再试"), 502
