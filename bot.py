@@ -19,6 +19,7 @@ app.config.update(
     MAX_CONTENT_LENGTH=16 * 1024,
 )
 MODEL = os.getenv("OPENAI_MODEL", "gpt-6")
+FREE_DAILY_MESSAGES = 5  # UTC calendar day; paid plans not enabled yet
 PHONE_PATTERN = re.compile(r"^1[3-9]\d{9}$")
 
 
@@ -62,6 +63,14 @@ def init_db():
                 )
             """)
             cur.execute("""
+                CREATE TABLE IF NOT EXISTS daily_message_usage (
+                    user_id BIGINT NOT NULL REFERENCES users(id),
+                    usage_day DATE NOT NULL,
+                    used INTEGER NOT NULL DEFAULT 0 CHECK (used >= 0),
+                    PRIMARY KEY (user_id, usage_day)
+                )
+            """)
+            cur.execute("""
                 CREATE TABLE IF NOT EXISTS auth_rate_limits (
                     action TEXT NOT NULL,
                     identity_hash CHAR(64) NOT NULL,
@@ -70,6 +79,52 @@ def init_db():
                     PRIMARY KEY (action, identity_hash)
                 )
             """)
+
+
+def reserve_free_message(user_id):
+    """Atomic quota reservation. False when five messages already reserved today (UTC)."""
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO daily_message_usage (user_id, usage_day, used)
+                VALUES (%s, (NOW() AT TIME ZONE 'UTC')::date, 1)
+                ON CONFLICT (user_id, usage_day)
+                DO UPDATE SET used = daily_message_usage.used + 1
+                WHERE daily_message_usage.used < %s
+                RETURNING used
+            """, (user_id, FREE_DAILY_MESSAGES))
+            row = cur.fetchone()
+            return row[0] if row else None
+
+
+def refund_free_message(user_id):
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE daily_message_usage SET used = GREATEST(0, used - 1)
+                WHERE user_id = %s AND usage_day = (NOW() AT TIME ZONE 'UTC')::date
+            """, (user_id,))
+
+
+@app.get("/account/usage")
+@require_login
+def account_usage():
+    try:
+        init_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT used FROM daily_message_usage
+                    WHERE user_id=%s AND usage_day=(NOW() AT TIME ZONE 'UTC')::date
+                """, (session["user_id"],))
+                row = cur.fetchone()
+        used = row[0] if row else 0
+        return jsonify(plan="free", limit=FREE_DAILY_MESSAGES,
+                       used=used, remaining=max(0, FREE_DAILY_MESSAGES-used),
+                       reset="00:00 UTC")
+    except Exception:
+        app.logger.exception("Usage lookup failed")
+        return jsonify(error="暂时无法查询额度"), 503
 
 
 def require_login(fn):
@@ -112,7 +167,7 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <p style="font-size:13px;color:#666">当前不发送短信验证码，手机号未经验证；请勿使用他人的号码注册。</p></section>
 <section id="chatArea" class="hidden"><p>已登录：<span id="who"></span> <button id="logoutBtn">退出</button></p>
 <details id="security"><summary>账号安全 · 修改密码</summary><input id="oldPassword" type="password" autocomplete="current-password" placeholder="当前密码"><input id="newPassword" type="password" autocomplete="new-password" placeholder="新密码（至少10位，包含不同类型字符）"><button id="changePasswordBtn">修改密码</button></details>
-<div id="chat"><div class="msg">🤖 你好，我是 fishyeah Chat。</div></div>
+<p id="quotaInfo">免费版每天可发送5条消息（UTC 00:00重置）</p><div id="chat"><div class="msg">🤖 你好，我是 fishyeah Chat。</div></div>
 <input id="message" placeholder="输入你的问题..."><button id="sendBtn">发送</button></section>
 <p id="notice" role="status"></p></main>
 <script>
@@ -124,7 +179,8 @@ async function api(path,data){
  if(!response.ok)throw Error(body.error||"请求失败");
  return body;
 }
-function showUser(phone){$("auth").classList.toggle("hidden",!!phone);$("chatArea").classList.toggle("hidden",!phone);$("who").textContent=phone||"";notice("");}
+async function refreshQuota(){try{const r=await fetch("/account/usage");if(r.ok){const d=await r.json();$("quotaInfo").textContent="免费版：今日剩余 "+d.remaining+"/"+d.limit+" 条（UTC 00:00重置）";}}catch(e){}}
+function showUser(phone){if(phone)refreshQuota();$("auth").classList.toggle("hidden",!!phone);$("chatArea").classList.toggle("hidden",!phone);$("who").textContent=phone||"";notice("");}
 async function authenticate(mode){
  const phone=$("phone").value.trim(),password=$("password").value;
  if(!/^1[3-9]\d{9}$/.test(phone)){notice("请输入正确的11位中国大陆手机号");return;}
@@ -154,7 +210,7 @@ $("sendBtn").onclick=async()=>{
  add("🧑",message);$("message").value="";$("sendBtn").disabled=true;
  try{const result=await api("/chat",{message});add("🤖",result.reply);}
  catch(e){add("❌",e.message);}
- finally{$("sendBtn").disabled=false;}
+ finally{$("sendBtn").disabled=false;refreshQuota();}
 };
 fetch("/auth/me").then(r=>r.json()).then(data=>showUser(data.phone||null)).catch(()=>{});
 </script></body></html>"""
@@ -270,12 +326,25 @@ def chat():
     message = data.get("message")
     if not isinstance(message, str) or not message.strip() or len(message) > 4000:
         return jsonify(error="请输入不超过4000字的消息"), 400
+    user_id = session["user_id"]
+    try:
+        init_db()
+        used = reserve_free_message(user_id)
+    except Exception:
+        app.logger.exception("Quota check failed")
+        return jsonify(error="额度检查暂时不可用，请稍后再试"), 503
+    if used is None:
+        return jsonify(error="今天的5条免费消息已用完，请明天再试（UTC 00:00重置）"), 429
     try:
         client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
         response = client.responses.create(model=MODEL, input=message.strip())
-        return jsonify(reply=response.output_text)
+        return jsonify(reply=response.output_text, remaining=FREE_DAILY_MESSAGES-used)
     except Exception:
         app.logger.exception("AI request failed")
+        try:
+            refund_free_message(user_id)
+        except Exception:
+            app.logger.exception("Quota refund failed")
         return jsonify(error="AI 请求失败，请稍后再试"), 502
 
 
