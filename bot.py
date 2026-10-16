@@ -4,9 +4,11 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from openai import OpenAI
+from auth import setup_auth, login_required, current_user, spend_credit, refund_credit
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024
+setup_auth(app)
 # For production across multiple workers, configure RATELIMIT_STORAGE_URI to Redis.
 limiter = Limiter(get_remote_address, app=app, default_limits=[], storage_uri=os.getenv("RATELIMIT_STORAGE_URI", "memory://"))
 
@@ -39,6 +41,11 @@ def home():
                 margin: 40px auto;
                 padding: 20px;
             }
+            #account { display: grid; gap: 8px; margin-bottom: 20px; }
+            #account input { width: 100%; }
+            #account button { width: 48%; }
+            #account-actions { display: flex; justify-content: space-between; }
+            #logout { width: auto; }
             h1 {
                 text-align: center;
             }
@@ -63,15 +70,72 @@ def home():
     <body>
         <h1>fishyeah Chat</h1>
 
+        <div id="account">
+          <input id="phone" type="tel" inputmode="numeric" maxlength="11" autocomplete="tel" placeholder="中国大陆手机号">
+          <input id="password" type="password" minlength="10" autocomplete="current-password" placeholder="密码（至少10位）">
+          <div id="account-actions"><button onclick="accountAction('register')">注册</button><button onclick="accountAction('login')">登录</button></div>
+          <p id="account-status" aria-live="polite">请先登录</p>
+        </div>
+        <div id="signed-in" hidden><span id="user-info"></span> <button id="logout" onclick="logout()">退出</button></div>
         <div id="chat">
             <p>🤖 你好，我是 fishyeah Chat。</p>
         </div>
 
-        <input id="message" placeholder="输入你的问题...">
-        <button onclick="sendMessage()">发送</button>
+        <input id="message" placeholder="输入你的问题..." disabled>
+        <button id="send" onclick="sendMessage()" disabled>发送</button>
 
         <script>
+            let csrfToken = "";
+            let loggedIn = false;
+            function showStatus(text) {
+                document.getElementById("account-status").textContent = text;
+            }
+            function showUser(data) {
+                loggedIn = true;
+                document.getElementById("account").hidden = true;
+                document.getElementById("signed-in").hidden = false;
+                document.getElementById("message").disabled = false;
+                document.getElementById("send").disabled = false;
+                document.getElementById("user-info").textContent = data.phone + " · 剩余 " + data.credits + " 次";
+            }
+            async function api(path, payload) {
+                const response = await fetch(path, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (data.csrf_token) csrfToken = data.csrf_token;
+                if (!response.ok) throw new Error(data.error || "请求失败");
+                return data;
+            }
+            async function accountAction(type) {
+                try {
+                    const data = await api("/" + type, {
+                        phone: document.getElementById("phone").value.trim(),
+                        password: document.getElementById("password").value
+                    });
+                    document.getElementById("password").value = "";
+                    showUser(data);
+                } catch (err) { showStatus(err.message); }
+            }
+            async function logout() {
+                try {
+                    await api("/logout", {});
+                    window.location.reload();
+                } catch (err) { alert(err.message); }
+            }
+            async function init() {
+                try {
+                    const csrf = await fetch("/csrf");
+                    csrfToken = (await csrf.json()).csrf_token;
+                    const response = await fetch("/me");
+                    if (response.ok) showUser(await response.json());
+                } catch (err) { showStatus("网络错误，请刷新重试"); }
+            }
+            init();
             async function sendMessage() {
+                if (!loggedIn) return;
                 const input = document.getElementById("message");
                 const chat = document.getElementById("chat");
                 const message = input.value.trim();
@@ -83,17 +147,17 @@ def home():
                 chat.appendChild(userLine);
                 input.value = "";
 
-                const response = await fetch("/chat", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        message: message
-                    })
-                });
-
-                const data = await response.json();
+                let data;
+                try {
+                    data = await api("/chat", {message: message});
+                } catch (err) {
+                    const errorLine = document.createElement("p");
+                    errorLine.textContent = "❌ " + err.message;
+                    chat.appendChild(errorLine);
+                    return;
+                }
+                const me = await fetch("/me");
+                if (me.ok) showUser(await me.json());
 
                 if (data.reply) {
                     const botLine = document.createElement("p");
@@ -118,6 +182,7 @@ def health():
 
 @app.post("/chat")
 @limiter.limit("10 per hour")
+@login_required
 def chat():
     data = request.get_json(silent=True) or {}
     message = data.get("message")
@@ -128,6 +193,10 @@ def chat():
     if len(message) > 2000:
         return jsonify({"error": "message too long (max 2000 characters)"}), 400
 
+    user = current_user()
+    if not spend_credit(user.id):
+        return jsonify({"error": "免费次数已用完，请等待付费功能上线"}), 402
+
     try:
         response = client.responses.create(
             model=MODEL,
@@ -135,6 +204,7 @@ def chat():
         )
         return jsonify({"reply": response.output_text})
     except Exception:
+        refund_credit(user.id)
         return jsonify({"error": "AI request failed"}), 500
 
 
