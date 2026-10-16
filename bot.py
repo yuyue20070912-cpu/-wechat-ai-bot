@@ -106,6 +106,15 @@ def refund_free_message(user_id):
             """, (user_id,))
 
 
+def require_login(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not session.get("user_id"):
+            return jsonify(error="请先登录"), 401
+        return fn(*args, **kwargs)
+    return wrapper
+
+
 @app.get("/account/usage")
 @require_login
 def account_usage():
@@ -125,15 +134,6 @@ def account_usage():
     except Exception:
         app.logger.exception("Usage lookup failed")
         return jsonify(error="暂时无法查询额度"), 503
-
-
-def require_login(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        if not session.get("user_id"):
-            return jsonify(error="请先登录"), 401
-        return fn(*args, **kwargs)
-    return wrapper
 
 
 @app.get("/app-icon")
