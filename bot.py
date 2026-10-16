@@ -24,7 +24,7 @@ def home():
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=
 <title>fishyeah Chat</title>
-<link rel="apple-touch-icon" href="/app-icon">
+<link rel="apple-touch-icon" sizes="180x180" href="/app-icon?v=2">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="fishyeah Chat">
 <style>
