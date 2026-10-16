@@ -2,3 +2,4 @@ flask
 gunicorn
 openai
 python-dotenv
+Flask-Limiter>=3.8,<5
