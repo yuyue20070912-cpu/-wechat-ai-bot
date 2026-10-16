@@ -1,6 +1,7 @@
 import os
 import re
 from datetime import timedelta
+from hashlib import sha256
 from functools import wraps
 
 import psycopg
@@ -17,8 +18,32 @@ app.config.update(
     PERMANENT_SESSION_LIFETIME=timedelta(days=7),
     MAX_CONTENT_LENGTH=16 * 1024,
 )
-MODEL = os.getenv("OPENAI_MODEL", "gpt-6")
+MODEL = os.getenv("OPENAI_MODEL", "gpt-6-luna")
 PHONE_PATTERN = re.compile(r"^1[3-9]\d{9}$")
+
+
+def rate_limit(action, identity, max_attempts, minutes=15):
+    key = sha256(identity.encode("utf-8")).hexdigest()
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO auth_rate_limits (action, identity_hash, attempts, reset_at)
+                VALUES (%s, %s, 1, NOW() + (%s * INTERVAL '1 minute'))
+                ON CONFLICT (action, identity_hash) DO UPDATE SET
+                    attempts = CASE WHEN auth_rate_limits.reset_at <= NOW()
+                        THEN 1 ELSE auth_rate_limits.attempts + 1 END,
+                    reset_at = CASE WHEN auth_rate_limits.reset_at <= NOW()
+                        THEN NOW() + (%s * INTERVAL '1 minute')
+                        ELSE auth_rate_limits.reset_at END
+                RETURNING attempts
+            """, (action, key, minutes, minutes))
+            return cur.fetchone()[0] <= max_attempts
+
+
+def allow_auth(action, phone):
+    ip = request.remote_addr or "unknown"
+    return (rate_limit(action + ":ip", ip, 20 if action == "login" else 5)
+            and rate_limit(action + ":phone", phone, 8 if action == "login" else 3))
 
 
 def db_connection():
@@ -34,6 +59,15 @@ def init_db():
                     phone VARCHAR(11) UNIQUE NOT NULL,
                     password_hash TEXT NOT NULL,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS auth_rate_limits (
+                    action TEXT NOT NULL,
+                    identity_hash CHAR(64) NOT NULL,
+                    attempts INTEGER NOT NULL,
+                    reset_at TIMESTAMPTZ NOT NULL,
+                    PRIMARY KEY (action, identity_hash)
                 )
             """)
 
@@ -73,7 +107,7 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 </style></head><body><main><h1>fishyeah Chat</h1>
 <section id="auth"><h2 id="authTitle">登录</h2>
 <input id="phone" type="tel" inputmode="numeric" maxlength="11" autocomplete="tel" placeholder="中国大陆手机号">
-<input id="password" type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="密码（至少8位）">
+<input id="password" type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="密码（新账号至少10位，包含字母和数字）">
 <button id="loginBtn">登录</button><button id="registerBtn">注册新账号</button>
 <p style="font-size:13px;color:#666">当前不发送短信验证码，手机号未经验证；请勿使用他人的号码注册。</p></section>
 <section id="chatArea" class="hidden"><p>已登录：<span id="who"></span> <button id="logoutBtn">退出</button></p>
@@ -134,8 +168,12 @@ def register():
         return jsonify(error="手机号格式不正确"), 400
     if not isinstance(password, str) or not 8 <= len(password) <= 128:
         return jsonify(error="密码长度需要在8到128位之间"), 400
+    if len(password) < 10 or password.isdigit() or password.isalpha():
+        return jsonify(error="新密码至少10位，需包含字母及数字或符号"), 400
     try:
         init_db()
+        if not allow_auth("register", phone):
+            return jsonify(error="注册太频繁，请15分钟后重试"), 429
         with db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("INSERT INTO users (phone,password_hash) VALUES (%s,%s) ON CONFLICT (phone) DO NOTHING RETURNING id",
@@ -160,6 +198,8 @@ def login():
         return jsonify(error="手机号或密码错误"), 401
     try:
         init_db()
+        if not allow_auth("login", phone):
+            return jsonify(error="登录太频繁，请15分钟后重试"), 429
         with db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT id,password_hash FROM users WHERE phone=%s", (phone,))
