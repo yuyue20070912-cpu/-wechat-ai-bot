@@ -1,6 +1,7 @@
 import os
 import re
 from datetime import timedelta
+from secrets import token_urlsafe
 from hashlib import sha256
 from functools import wraps
 
@@ -95,6 +96,18 @@ def init_db():
                 )
             """)
             cur.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_active ON subscriptions (user_id, ends_at DESC)")
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS membership_orders (
+                    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    user_id BIGINT NOT NULL REFERENCES users(id),
+                    plan TEXT NOT NULL CHECK (plan IN ('basic','pro')),
+                    amount_fen INTEGER NOT NULL,
+                    payment_method TEXT NOT NULL CHECK (payment_method IN ('wechat','alipay')),
+                    reference TEXT UNIQUE NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
 
 def get_active_subscription(user_id):
     with db_connection() as conn:
@@ -145,6 +158,43 @@ def membership_plans():
         *[{"id":k,**v,"period_days":30} for k,v in PAID_PLANS.items()]
     ], payments_enabled=False)
 
+
+
+@app.post("/membership/orders")
+@require_login
+def create_membership_order():
+    data = request.get_json(silent=True) or {}
+    plan, method = data.get("plan"), data.get("payment_method")
+    if plan not in PAID_PLANS or method not in ("wechat", "alipay"):
+        return jsonify(error="请选择有效套餐和付款方式"), 400
+    reference = token_urlsafe(18)
+    try:
+        init_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("INSERT INTO membership_orders (user_id,plan,amount_fen,payment_method,reference) VALUES (%s,%s,%s,%s,%s) RETURNING id",
+                            (session["user_id"],plan,PAID_PLANS[plan]["price_cny_fen"],method,reference))
+                order_id = cur.fetchone()[0]
+        return jsonify(order_id=order_id,reference=reference,amount_cny=PAID_PLANS[plan]["price_cny_fen"]/100,
+                       status="pending",instruction="请使用收款二维码付款，备注订单编号，等待人工核实；不要重复付款。"),201
+    except Exception:
+        app.logger.exception("Membership order failed")
+        return jsonify(error="订单创建失败"),503
+
+
+@app.get("/membership/orders")
+@require_login
+def membership_orders():
+    try:
+        init_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id,plan,amount_fen,payment_method,reference,status FROM membership_orders WHERE user_id=%s ORDER BY id DESC LIMIT 20",(session["user_id"],))
+                rows=cur.fetchall()
+        return jsonify(orders=[dict(id=r[0],plan=r[1],amount_cny=r[2]/100,payment_method=r[3],reference=r[4],status=r[5]) for r in rows])
+    except Exception:
+        app.logger.exception("Membership order list failed")
+        return jsonify(error="查询订单失败"),503
 
 
 def reserve_free_message(user_id):
