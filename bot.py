@@ -11,7 +11,7 @@ app.config["MAX_CONTENT_LENGTH"] = 16 * 1024
 limiter = Limiter(get_remote_address, app=app, default_limits=[], storage_uri=os.getenv("RATELIMIT_STORAGE_URI", "memory://"))
 
 client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-MODEL = os.getenv("OPENAI_MODEL", "gpt-6-luna")
+MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 @app.get("/app-icon")
 def app_icon():
@@ -27,7 +27,7 @@ def home():
     <html>
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>fishyeah Chat</title>
 <link rel="apple-touch-icon" sizes="180x180" href="/app-icon?v=2">
 <meta name="apple-mobile-web-app-capable" content="yes">
