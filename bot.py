@@ -1,11 +1,14 @@
 import os
 import re
 from datetime import timedelta
+from secrets import token_urlsafe, compare_digest
+from io import BytesIO
+import qrcode
 from hashlib import sha256
 from functools import wraps
 
 import psycopg
-from flask import Flask, jsonify, request, send_from_directory, session
+from flask import Flask, jsonify, request, send_from_directory, send_file, session
 from openai import OpenAI
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -19,8 +22,13 @@ app.config.update(
     MAX_CONTENT_LENGTH=16 * 1024,
 )
 MODEL = os.getenv("OPENAI_MODEL", "gpt-6-luna")
-FREE_DAILY_MESSAGES = 5  # UTC calendar day; paid plans not enabled yet
+FREE_DAILY_MESSAGES = 5  # UTC calendar day
+PAID_PLANS = {"basic": {"price_cny_fen": 990, "messages": 300}, "pro": {"price_cny_fen": 1990, "messages": 1000}}
 PHONE_PATTERN = re.compile(r"^1[3-9]\d{9}$")
+def payments_ready():
+    return len(os.getenv("ADMIN_REVIEW_TOKEN", "")) >= 32
+
+PAYMENT_QR_CONTENT = {"alipay": "https://qr.alipay.com/fkx10355uzbazrfvvys4232", "wechat": "wxp://f2f0HdmMjE2AuF0qjzSMF2YbY-BSZrmgPWRK5RjtWFpWH0M"}
 
 
 def rate_limit(action, identity, max_attempts, minutes=15):
@@ -80,6 +88,240 @@ def init_db():
                 )
             """)
 
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS subscriptions (
+                    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    user_id BIGINT NOT NULL REFERENCES users(id),
+                    plan TEXT NOT NULL CHECK (plan IN ('basic', 'pro')),
+                    starts_at TIMESTAMPTZ NOT NULL,
+                    ends_at TIMESTAMPTZ NOT NULL,
+                    message_limit INTEGER NOT NULL CHECK (message_limit > 0),
+                    used INTEGER NOT NULL DEFAULT 0 CHECK (used >= 0),
+                    payment_reference TEXT UNIQUE NOT NULL,
+                    CHECK (ends_at > starts_at)
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_active ON subscriptions (user_id, ends_at DESC)")
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS membership_orders (
+                    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    user_id BIGINT NOT NULL REFERENCES users(id),
+                    plan TEXT NOT NULL CHECK (plan IN ('basic','pro')),
+                    amount_fen INTEGER NOT NULL,
+                    payment_method TEXT NOT NULL CHECK (payment_method IN ('wechat','alipay')),
+                    reference TEXT UNIQUE NOT NULL,
+                    payer_note TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+
+def get_active_subscription(user_id):
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, plan, ends_at, message_limit, used
+                FROM subscriptions
+                WHERE user_id=%s AND starts_at <= NOW() AND ends_at > NOW()
+                ORDER BY ends_at DESC, id DESC LIMIT 1
+            """, (user_id,))
+            return cur.fetchone()
+
+
+def reserve_message(user_id):
+    """Reserve a message atomically; paid users use period allowance, free users daily allowance."""
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, plan, message_limit FROM subscriptions
+                WHERE user_id=%s AND starts_at <= NOW() AND ends_at > NOW()
+                ORDER BY ends_at DESC, id DESC LIMIT 1 FOR UPDATE
+            """, (user_id,))
+            sub = cur.fetchone()
+            if sub:
+                cur.execute("""
+                    UPDATE subscriptions SET used=used+1
+                    WHERE id=%s AND used < message_limit RETURNING message_limit-used
+                """, (sub[0],))
+                row = cur.fetchone()
+                return ("paid", sub[0], row[0] if row else None)
+    used = reserve_free_message(user_id)
+    return ("free", None, FREE_DAILY_MESSAGES-used if used is not None else None)
+
+
+def refund_message(user_id, kind, subscription_id):
+    if kind == "paid":
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE subscriptions SET used=GREATEST(0,used-1) WHERE id=%s AND user_id=%s", (subscription_id,user_id))
+    else:
+        refund_free_message(user_id)
+
+
+def require_login(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not session.get("user_id"):
+            return jsonify(error="请先登录"), 401
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+@app.get("/membership/payment-qr/<method>")
+@require_login
+def payment_qr(method):
+    if not payments_ready():
+        return jsonify(error="支付暂未开放"),503
+    if method not in PAYMENT_QR_CONTENT:
+        return jsonify(error="不支持的支付方式"),404
+    img=qrcode.make(PAYMENT_QR_CONTENT[method])
+    buf=BytesIO()
+    img.save(buf,format="PNG")
+    buf.seek(0)
+    return send_file(buf,mimetype="image/png",max_age=300)
+
+
+@app.get("/membership/plans")
+def membership_plans():
+    return jsonify(plans=[
+        {"id":"free","price_cny_fen":0,"messages_per_day":FREE_DAILY_MESSAGES},
+        *[{"id":k,**v,"period_days":30} for k,v in PAID_PLANS.items()]
+    ], payments_enabled=payments_ready())
+
+
+
+@app.post("/membership/orders")
+@require_login
+def create_membership_order():
+    if not payments_ready():
+        return jsonify(error="支付尚未开放，请稍后再试"),503
+    data = request.get_json(silent=True) or {}
+    plan, method = data.get("plan"), data.get("payment_method")
+    if plan not in PAID_PLANS or method not in ("wechat", "alipay"):
+        return jsonify(error="请选择有效套餐和付款方式"), 400
+    reference = token_urlsafe(18)
+    try:
+        init_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("INSERT INTO membership_orders (user_id,plan,amount_fen,payment_method,reference) VALUES (%s,%s,%s,%s,%s) RETURNING id",
+                            (session["user_id"],plan,PAID_PLANS[plan]["price_cny_fen"],method,reference))
+                order_id = cur.fetchone()[0]
+        return jsonify(order_id=order_id,reference=reference,amount_cny=PAID_PLANS[plan]["price_cny_fen"]/100,
+                       status="pending",instruction="请使用收款二维码付款，备注订单编号，等待人工核实；不要重复付款。"),201
+    except Exception:
+        app.logger.exception("Membership order failed")
+        return jsonify(error="订单创建失败"),503
+
+
+@app.post("/membership/orders/<int:order_id>/payment-note")
+@require_login
+def submit_payment_note(order_id):
+    data=request.get_json(silent=True) or {}
+    note=data.get("note")
+    if not isinstance(note,str) or not 6 <= len(note.strip()) <= 160:
+        return jsonify(error="请填写支付时间及支付凭证信息（6-160字）"),400
+    try:
+        init_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE membership_orders SET payer_note=%s
+                    WHERE id=%s AND user_id=%s AND status='pending'
+                    RETURNING id
+                """,(note.strip(),order_id,session["user_id"]))
+                if cur.fetchone() is None:
+                    return jsonify(error="订单不存在或已审核"),404
+        return jsonify(ok=True,status="pending")
+    except Exception:
+        app.logger.exception("Payment note failed")
+        return jsonify(error="提交付款信息失败"),503
+
+
+@app.get("/membership/orders")
+@require_login
+def membership_orders():
+    try:
+        init_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id,plan,amount_fen,payment_method,reference,status FROM membership_orders WHERE user_id=%s ORDER BY id DESC LIMIT 20",(session["user_id"],))
+                rows=cur.fetchall()
+        return jsonify(orders=[dict(id=r[0],plan=r[1],amount_cny=r[2]/100,payment_method=r[3],reference=r[4],status=r[5]) for r in rows])
+    except Exception:
+        app.logger.exception("Membership order list failed")
+        return jsonify(error="查询订单失败"),503
+
+
+def require_admin(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        expected = os.getenv("ADMIN_REVIEW_TOKEN", "")
+        provided = request.headers.get("X-Admin-Token", "")
+        if len(expected) < 32 or not provided or not compare_digest(provided, expected):
+            return jsonify(error="无权访问"), 403
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+@app.get("/admin/membership/orders")
+@require_admin
+def admin_membership_orders():
+    try:
+        init_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT o.id,u.phone,o.plan,o.amount_fen,o.payment_method,o.reference,o.status,o.created_at,o.payer_note
+                    FROM membership_orders o JOIN users u ON u.id=o.user_id
+                    WHERE o.status='pending' ORDER BY o.created_at ASC LIMIT 100
+                """)
+                rows=cur.fetchall()
+        return jsonify(orders=[dict(id=r[0],phone=r[1],plan=r[2],amount_cny=r[3]/100,
+                                    payment_method=r[4],reference=r[5],status=r[6],
+                                    created_at=r[7].isoformat(),payer_note=r[8]) for r in rows])
+    except Exception:
+        app.logger.exception("Admin order lookup failed")
+        return jsonify(error="订单查询失败"),503
+
+
+@app.post("/admin/membership/orders/<int:order_id>/review")
+@require_admin
+def admin_review_membership_order(order_id):
+    data=request.get_json(silent=True) or {}
+    decision=data.get("decision")
+    payment_reference=data.get("payment_reference")
+    if decision not in ("approve","reject"):
+        return jsonify(error="无效审核结果"),400
+    if decision=="approve" and (not isinstance(payment_reference,str) or not 6 <= len(payment_reference) <= 128):
+        return jsonify(error="请填写核实过的支付流水号"),400
+    try:
+        init_db()
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT user_id,plan,amount_fen,status FROM membership_orders WHERE id=%s FOR UPDATE",(order_id,))
+                row=cur.fetchone()
+                if not row:
+                    return jsonify(error="订单不存在"),404
+                user_id,plan,amount,status=row
+                if status!="pending":
+                    return jsonify(error="订单已经审核，不能重复操作"),409
+                if amount!=PAID_PLANS[plan]["price_cny_fen"]:
+                    return jsonify(error="订单金额不匹配"),409
+                if decision=="approve":
+                    cur.execute("""
+                        INSERT INTO subscriptions (user_id,plan,starts_at,ends_at,message_limit,payment_reference)
+                        VALUES (%s,%s,NOW(),NOW()+INTERVAL '30 days',%s,%s)
+                    """,(user_id,plan,PAID_PLANS[plan]["messages"],payment_reference))
+                cur.execute("UPDATE membership_orders SET status=%s WHERE id=%s",
+                            ("approved" if decision=="approve" else "rejected",order_id))
+        return jsonify(ok=True,status="approved" if decision=="approve" else "rejected")
+    except psycopg.errors.UniqueViolation:
+        return jsonify(error="该支付流水号已用于其他订单"),409
+    except Exception:
+        app.logger.exception("Order review failed")
+        return jsonify(error="订单审核失败"),503
+
 
 def reserve_free_message(user_id):
     """Atomic quota reservation. False when five messages already reserved today (UTC)."""
@@ -106,13 +348,6 @@ def refund_free_message(user_id):
             """, (user_id,))
 
 
-def require_login(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        if not session.get("user_id"):
-            return jsonify(error="请先登录"), 401
-        return fn(*args, **kwargs)
-    return wrapper
 
 
 @app.get("/account/usage")
@@ -128,6 +363,10 @@ def account_usage():
                 """, (session["user_id"],))
                 row = cur.fetchone()
         used = row[0] if row else 0
+        sub = get_active_subscription(session["user_id"])
+        if sub:
+            return jsonify(plan=sub[1], limit=sub[3], used=sub[4],
+                           remaining=max(0,sub[3]-sub[4]), expires_at=sub[2].isoformat())
         return jsonify(plan="free", limit=FREE_DAILY_MESSAGES,
                        used=used, remaining=max(0, FREE_DAILY_MESSAGES-used),
                        reset="00:00 UTC")
@@ -159,6 +398,23 @@ button{border:0;background:#111;color:white;cursor:pointer;margin:6px 4px 6px 0}
 button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;border:1px solid #ddd;padding:12px;border-radius:10px;white-space:pre-wrap}
 .msg{padding:9px;margin:7px 0;border-radius:9px;background:#f2f2f2;overflow-wrap:anywhere}
 .hidden{display:none}#notice{color:#a02020;min-height:24px}
+#membership{margin:18px 0;padding:17px;border:1px solid #e6e7ec;border-radius:18px;background:linear-gradient(160deg,#fff,#f5f7ff)}
+#membership summary{font-weight:750;font-size:19px;cursor:pointer}
+.member-intro{font-size:13px;color:#687080;margin:8px 0 14px}
+.member-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0}
+.member-card{border:1px solid #e4e5ed;border-radius:15px;padding:13px;background:white;min-width:0}
+.member-card.featured{background:#161b29;color:white;border-color:#161b29}
+.member-card h3{font-size:14px;margin:0 0 9px}
+.member-card .price{font-size:27px;font-weight:800;letter-spacing:-1px}
+.member-card .price small{font-size:12px;font-weight:400}
+.member-card p{font-size:12px;line-height:1.6;margin:8px 0 0}
+#membership select{font:inherit;width:100%;margin:6px 0 12px;padding:12px;border:1px solid #ddd;border-radius:10px;background:white}
+#membership label{display:block;font-size:13px;font-weight:600}
+#membership button{width:100%;margin:6px 0}
+#ordersBtn{background:#e9eaf0;color:#151515}
+#orderResult{padding:12px;border-radius:12px;background:#f0f2f6;font-size:13px;line-height:1.7;margin-top:10px}
+.member-safe{font-size:12px;color:#747b8b;line-height:1.6}
+@media(max-width:390px){.member-cards{grid-template-columns:1fr}}
 </style></head><body><main><h1>fishyeah Chat</h1>
 <section id="auth"><h2 id="authTitle">登录</h2>
 <input id="phone" type="tel" inputmode="numeric" maxlength="11" autocomplete="tel" placeholder="中国大陆手机号">
@@ -167,11 +423,27 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <p style="font-size:13px;color:#666">当前不发送短信验证码，手机号未经验证；请勿使用他人的号码注册。</p></section>
 <section id="chatArea" class="hidden"><p>已登录：<span id="who"></span> <button id="logoutBtn">退出</button></p>
 <details id="security"><summary>账号安全 · 修改密码</summary><input id="oldPassword" type="password" autocomplete="current-password" placeholder="当前密码"><input id="newPassword" type="password" autocomplete="new-password" placeholder="新密码（至少10位，包含不同类型字符）"><button id="changePasswordBtn">修改密码</button></details>
+<details id="membership"><summary>✦ fishyeah 会员中心</summary>
+<p class="member-intro">解锁更多对话额度 · 轻松使用 fishyeah Chat</p>
+<div class="member-cards">
+<div class="member-card"><h3>基础会员</h3><div class="price">¥9.9<small> / 30天</small></div><p>300 条 AI 消息<br>适合日常学习和轻度使用</p></div>
+<div class="member-card featured"><h3>✦ 高级会员</h3><div class="price">¥19.9<small> / 30天</small></div><p>1,000 条 AI 消息<br>适合经常使用 AI 的用户</p></div>
+</div>
+<label for="memberPlan">选择套餐</label>
+<select id="memberPlan"><option value="basic">基础会员 · ¥9.9</option><option value="pro">高级会员 · ¥19.9</option></select>
+<label for="payMethod">支付方式</label>
+<select id="payMethod"><option value="alipay">支付宝</option><option value="wechat">微信支付</option></select>
+<button id="createOrderBtn">创建会员订单</button>
+<button id="ordersBtn">查看我的订单</button>
+<div id="orderResult" aria-live="polite">订单创建后将在这里显示订单信息。</div><div id="qrPanel" class="hidden" style="text-align:center;margin:12px 0"><p id="qrTitle"></p><img id="paymentQR" alt="收款二维码" width="240" height="240" style="max-width:100%;image-rendering:pixelated;border-radius:12px"><p class="member-safe">请先核对金额。付款后填写支付时间和凭证信息，等待人工核实。</p></div><div id="paymentProof" class="hidden"><label for="payerNote">付款信息（付款时间、支付平台订单号等）</label><input id="payerNote" maxlength="160" placeholder="例：10月17日 20:30，支付订单号末6位123456"><button id="submitProofBtn">我已付款，提交核实信息</button></div>
+<p class="member-safe">当前使用个人收款码人工审核：请核对收款人及金额，付款后保存支付凭证；到账确认后才开通会员，不会自动扣费。</p>
+</details>
 <p id="quotaInfo">免费版每天可发送5条消息（UTC 00:00重置）</p><div id="chat"><div class="msg">🤖 你好，我是 fishyeah Chat。</div></div>
 <input id="message" placeholder="输入你的问题..."><button id="sendBtn">发送</button></section>
 <p id="notice" role="status"></p></main>
 <script>
 const $=id=>document.getElementById(id);
+let activeOrderId=null;
 const notice=msg=>$("notice").textContent=msg;
 async function api(path,data){
  const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data||{})});
@@ -179,8 +451,9 @@ async function api(path,data){
  if(!response.ok)throw Error(body.error||"请求失败");
  return body;
 }
-async function refreshQuota(){try{const r=await fetch("/account/usage");if(r.ok){const d=await r.json();$("quotaInfo").textContent="免费版：今日剩余 "+d.remaining+"/"+d.limit+" 条（UTC 00:00重置）";}}catch(e){}}
-function showUser(phone){if(phone)refreshQuota();$("auth").classList.toggle("hidden",!!phone);$("chatArea").classList.toggle("hidden",!phone);$("who").textContent=phone||"";notice("");}
+async function refreshMembership(){try{const r=await fetch("/membership/plans");if(r.ok){const d=await r.json();if(!d.payments_enabled){$("createOrderBtn").disabled=true;$("createOrderBtn").textContent="支付即将开放";$("orderResult").textContent="会员页面已上线，支付尚未开放。请勿转账。";}}}catch(e){}}
+async function refreshQuota(){try{const r=await fetch("/account/usage");if(r.ok){const d=await r.json();$("quotaInfo").textContent=(d.plan==="free"?"免费版":"会员 "+d.plan)+"：剩余 "+d.remaining+"/"+d.limit+" 条"+(d.plan==="free"?"（UTC 00:00重置）":"（当前会员周期）");}}catch(e){}}
+function showUser(phone){if(phone){refreshQuota();refreshMembership();}$("auth").classList.toggle("hidden",!!phone);$("chatArea").classList.toggle("hidden",!phone);$("who").textContent=phone||"";notice("");}
 async function authenticate(mode){
  const phone=$("phone").value.trim(),password=$("password").value;
  if(!/^1[3-9]\d{9}$/.test(phone)){notice("请输入正确的11位中国大陆手机号");return;}
@@ -191,6 +464,37 @@ async function authenticate(mode){
  catch(err){notice(err.message);}
  finally{$("loginBtn").disabled=$("registerBtn").disabled=false;}
 }
+
+$("createOrderBtn").onclick=async()=>{
+ $("createOrderBtn").disabled=true;
+ try{
+  const d=await api("/membership/orders",{plan:$("memberPlan").value,payment_method:$("payMethod").value});
+  $("orderResult").textContent="订单编号："+d.order_id+"\\n金额：¥"+d.amount_cny+"\\n状态：等待人工核实。付款前请保存订单编号。";
+  $("qrTitle").textContent=($("payMethod").value==="alipay"?"支付宝":"微信支付")+" · ¥"+d.amount_cny;
+  $("paymentQR").src="/membership/payment-qr/"+$("payMethod").value;
+  $("qrPanel").classList.remove("hidden");
+  activeOrderId=d.order_id;$("paymentProof").classList.remove("hidden");
+ }catch(e){notice(e.message);}
+ finally{$("createOrderBtn").disabled=false;}
+};
+$("submitProofBtn").onclick=async()=>{
+ if(!activeOrderId){notice("请先创建订单");return;}
+ $("submitProofBtn").disabled=true;
+ try{
+  await api("/membership/orders/"+activeOrderId+"/payment-note",{note:$("payerNote").value.trim()});
+  $("orderResult").textContent="付款信息已提交，订单 #"+activeOrderId+" 正在等待人工核实。";
+  $("paymentProof").classList.add("hidden");$("qrPanel").classList.add("hidden");
+ }catch(e){notice(e.message);}
+ finally{$("submitProofBtn").disabled=false;}
+};
+$("ordersBtn").onclick=async()=>{
+ try{
+  const r=await fetch("/membership/orders");
+  const d=await r.json();
+  if(!r.ok)throw Error(d.error||"订单查询失败");
+  $("orderResult").textContent=d.orders.length?d.orders.map(o=>"订单 #"+o.id+" · "+o.plan+" · ¥"+o.amount_cny+" · "+o.status).join("\\n"):"暂无订单";
+ }catch(e){notice(e.message);}
+};
 $("changePasswordBtn").onclick=async()=>{
  const oldPassword=$("oldPassword").value,newPassword=$("newPassword").value;
  if(!oldPassword||newPassword.length<10){notice("请输入当前密码和至少10位的新密码");return;}
@@ -329,20 +633,20 @@ def chat():
     user_id = session["user_id"]
     try:
         init_db()
-        used = reserve_free_message(user_id)
+        kind, subscription_id, remaining = reserve_message(user_id)
     except Exception:
         app.logger.exception("Quota check failed")
         return jsonify(error="额度检查暂时不可用，请稍后再试"), 503
-    if used is None:
-        return jsonify(error="今天的5条免费消息已用完，请明天再试（UTC 00:00重置）"), 429
+    if remaining is None:
+        return jsonify(error="当前消息额度已用完，请等待重置或续费"), 429
     try:
         client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
         response = client.responses.create(model=MODEL, input=message.strip())
-        return jsonify(reply=response.output_text, remaining=FREE_DAILY_MESSAGES-used)
+        return jsonify(reply=response.output_text, remaining=remaining)
     except Exception:
         app.logger.exception("AI request failed")
         try:
-            refund_free_message(user_id)
+            refund_message(user_id, kind, subscription_id)
         except Exception:
             app.logger.exception("Quota refund failed")
         return jsonify(error="AI 请求失败，请稍后再试"), 502
