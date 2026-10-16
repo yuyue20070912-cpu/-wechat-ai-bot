@@ -1,9 +1,14 @@
 import os
 
 from flask import Flask, jsonify, request, send_from_directory
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from openai import OpenAI
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 16 * 1024
+# For production across multiple workers, configure RATELIMIT_STORAGE_URI to Redis.
+limiter = Limiter(get_remote_address, app=app, default_limits=[], storage_uri=os.getenv("RATELIMIT_STORAGE_URI", "memory://"))
 
 client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 MODEL = os.getenv("OPENAI_MODEL", "gpt-6-luna")
@@ -73,7 +78,9 @@ def home():
 
                 if (!message) return;
 
-                chat.innerHTML += "<p>🧑 " + message + "</p>";
+                const userLine = document.createElement("p");
+                userLine.textContent = "🧑 " + message;
+                chat.appendChild(userLine);
                 input.value = "";
 
                 const response = await fetch("/chat", {
@@ -89,9 +96,13 @@ def home():
                 const data = await response.json();
 
                 if (data.reply) {
-                    chat.innerHTML += "<p>🤖 " + data.reply + "</p>";
+                    const botLine = document.createElement("p");
+                    botLine.textContent = "🤖 " + data.reply;
+                    chat.appendChild(botLine);
                 } else {
-                    chat.innerHTML += "<p>❌ " + (data.error || "发生错误") + "</p>";
+                    const errorLine = document.createElement("p");
+                    errorLine.textContent = "❌ " + (data.error || "发生错误");
+                    chat.appendChild(errorLine);
                 }
             }
         </script>
@@ -106,12 +117,16 @@ def health():
 
 
 @app.post("/chat")
+@limiter.limit("10 per hour")
 def chat():
     data = request.get_json(silent=True) or {}
     message = data.get("message")
 
     if not isinstance(message, str) or not message.strip():
         return jsonify({"error": "message is required"}), 400
+
+    if len(message) > 2000:
+        return jsonify({"error": "message too long (max 2000 characters)"}), 400
 
     try:
         response = client.responses.create(
