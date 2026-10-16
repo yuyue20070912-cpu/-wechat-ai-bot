@@ -155,6 +155,15 @@ def refund_message(user_id, kind, subscription_id):
         refund_free_message(user_id)
 
 
+def require_login(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not session.get("user_id"):
+            return jsonify(error="请先登录"), 401
+        return fn(*args, **kwargs)
+    return wrapper
+
+
 @app.get("/membership/payment-qr/<method>")
 @require_login
 def payment_qr(method):
@@ -332,13 +341,6 @@ def refund_free_message(user_id):
             """, (user_id,))
 
 
-def require_login(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        if not session.get("user_id"):
-            return jsonify(error="请先登录"), 401
-        return fn(*args, **kwargs)
-    return wrapper
 
 
 @app.get("/account/usage")
