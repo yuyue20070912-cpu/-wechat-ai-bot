@@ -518,7 +518,7 @@ async function api(path,data){
  if(!response.ok)throw Error(body.error||"请求失败");
  return body;
 }
-async function refreshMembership(){try{const r=await fetch("/membership/plans");if(r.ok){const d=await r.json();if(!d.payments_enabled){$("createOrderBtn").disabled=true;$("createOrderBtn").textContent="支付即将开放";$("orderResult").textContent="会员页面已上线，支付尚未开放。请勿转账。";}else{$("createOrderBtn").disabled=false;$("createOrderBtn").textContent="创建会员订单";}}}catch(e){}}
+async function refreshMembership(){try{const r=await fetch("/membership/plans");if(r.ok){const d=await r.json();if(!d.payments_enabled){$("createOrderBtn").disabled=true;$("createOrderBtn").textContent="支付尚未开放";$("orderResult").textContent="会员页面已上线，支付尚未开放。请勿转账。";}else{$("createOrderBtn").disabled=false;$("createOrderBtn").textContent="创建会员订单";}}}catch(e){}}
 async function refreshQuota(){try{const r=await fetch("/account/usage");if(r.ok){const d=await r.json();$("quotaInfo").textContent=(d.plan==="free"?"免费版":"会员 "+d.plan)+"：剩余 "+d.remaining+"/"+d.limit+" 条"+(d.plan==="free"?"（UTC 00:00重置）":"（当前会员周期）");}}catch(e){}}
 function showUser(phone){if(phone){refreshQuota();refreshMembership();}$("auth").classList.toggle("hidden",!!phone);$("chatArea").classList.toggle("hidden",!phone);$("who").textContent=phone||"";notice("");}
 async function authenticate(mode){
@@ -534,6 +534,7 @@ async function authenticate(mode){
 
 $("createOrderBtn").onclick=async()=>{
  $("createOrderBtn").disabled=true;
+ $("orderResult").textContent="正在创建订单，请稍候…";
  try{
   const d=await api("/membership/orders",{plan:$("memberPlan").value,payment_method:$("payMethod").value});
   $("orderResult").textContent="订单编号："+d.order_id+"\\n金额：¥"+d.amount_cny+"\\n状态：等待人工核实。付款前请保存订单编号。";
@@ -541,7 +542,7 @@ $("createOrderBtn").onclick=async()=>{
   $("paymentQR").src="/membership/payment-qr/"+$("payMethod").value;
   $("qrPanel").classList.remove("hidden");
   activeOrderId=d.order_id;$("paymentProof").classList.remove("hidden");
- }catch(e){notice(e.message);}
+ }catch(e){$("orderResult").textContent="创建订单失败："+e.message;notice(e.message);}
  finally{$("createOrderBtn").disabled=false;}
 };
 $("submitProofBtn").onclick=async()=>{
