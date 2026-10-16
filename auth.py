@@ -5,11 +5,14 @@ from functools import wraps
 
 from flask import Blueprint, current_app, jsonify, request, session
 from flask_sqlalchemy import SQLAlchemy
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from sqlalchemy import update
 from werkzeug.security import check_password_hash, generate_password_hash
 
 db = SQLAlchemy()
 auth = Blueprint("auth", __name__)
+auth_limiter = Limiter(key_func=get_remote_address, default_limits=[], storage_uri=os.getenv("RATELIMIT_STORAGE_URI", "memory://"))
 PHONE_RE = re.compile(r"^1[3-9][0-9]{9}$")
 
 
@@ -38,6 +41,7 @@ def setup_auth(app):
         SESSION_COOKIE_SECURE=os.getenv("COOKIE_SECURE", "true").lower() == "true",
     )
     db.init_app(app)
+    auth_limiter.init_app(app)
     app.register_blueprint(auth)
     with app.app_context():
         db.create_all()
@@ -74,6 +78,7 @@ def check_csrf():
 
 
 @auth.post("/register")
+@auth_limiter.limit("3 per hour")
 def register():
     payload = request.get_json(silent=True) or {}
     phone, password = payload.get("phone"), payload.get("password")
@@ -97,6 +102,7 @@ def register():
 
 
 @auth.post("/login")
+@auth_limiter.limit("5 per 15 minutes")
 def login():
     payload = request.get_json(silent=True) or {}
     phone, password = payload.get("phone"), payload.get("password")
