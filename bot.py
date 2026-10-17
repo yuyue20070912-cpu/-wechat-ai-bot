@@ -482,13 +482,13 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 #orderResult{padding:12px;border-radius:12px;background:#f0f2f6;font-size:13px;line-height:1.7;margin-top:10px}
 .member-safe{font-size:12px;color:#747b8b;line-height:1.6}
 @media(max-width:390px){.member-cards{grid-template-columns:1fr}}
-</style><link rel="stylesheet" href="/static/fishyeah-ui.css?v=1"></head><body><main><h1>fishyeah Chat</h1>
+</style><link rel="stylesheet" href="/static/fishyeah-ui.css?v=1"><link rel="stylesheet" href="/static/chat-focus.css?v=1"></head><body><main><h1>fishyeah Chat</h1>
 <section id="auth"><h2 id="authTitle">登录</h2>
 <input id="phone" type="tel" inputmode="numeric" maxlength="11" autocomplete="tel" placeholder="中国大陆手机号">
 <input id="password" type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="密码（新账号至少10位，包含字母和数字）">
 <button id="loginBtn">登录</button><button id="registerBtn">注册新账号</button>
 <p style="font-size:13px;color:#666">当前不发送短信验证码，手机号未经验证；请勿使用他人的号码注册。</p></section>
-<section id="chatArea" class="hidden"><p>已登录：<span id="who"></span> <button id="logoutBtn">退出</button></p>
+<section id="chatArea" class="hidden"><aside class="fish-side" id="fishSide"><div class="side-user">账户设置 · <span id="sideWho"></span></div><div id="sideContents"></div></aside><button class="fish-side-toggle" id="sideToggle" type="button" aria-expanded="false">☰ 菜单</button><p>已登录：<span id="who"></span> <button id="logoutBtn">退出</button></p>
 <details id="security"><summary>账号安全 · 修改密码</summary><input id="oldPassword" type="password" autocomplete="current-password" placeholder="当前密码"><input id="newPassword" type="password" autocomplete="new-password" placeholder="新密码（至少10位，包含不同类型字符）"><button id="changePasswordBtn">修改密码</button></details>
 <details id="membership"><summary>✦ fishyeah 会员中心</summary>
 <p class="member-intro">解锁更多对话额度 · 轻松使用 fishyeah Chat</p>
@@ -514,6 +514,7 @@ let activeOrderId=null;
 
 document.getElementById("themeBtn").onclick=()=>{document.body.classList.toggle("dark");};
 document.getElementById("newChatBtn").onclick=()=>{document.getElementById("chat").replaceChildren();const el=document.createElement("div");el.className="msg";el.textContent="✦ 你好，我是 fishyeah Chat。有什么可以帮你？";document.getElementById("chat").appendChild(el);};
+const side=document.getElementById("fishSide");const sideToggle=document.getElementById("sideToggle");sideToggle.onclick=()=>{const open=side.classList.toggle("open");sideToggle.setAttribute("aria-expanded",String(open));sideToggle.textContent=open?"✕ 关闭":"☰ 菜单";};["security","membership","quotaInfo","logoutBtn"].forEach(id=>document.getElementById("sideContents").appendChild(document.getElementById(id)));
 const notice=msg=>$("notice").textContent=msg;
 async function api(path,data){
  const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data||{})});
@@ -523,7 +524,7 @@ async function api(path,data){
 }
 async function refreshMembership(){try{const r=await fetch("/membership/plans");if(r.ok){const d=await r.json();if(!d.payments_enabled){$("createOrderBtn").disabled=true;$("createOrderBtn").textContent="支付尚未开放";$("orderResult").textContent="会员页面已上线，支付尚未开放。请勿转账。";}else{$("createOrderBtn").disabled=false;$("createOrderBtn").textContent="创建会员订单";}}}catch(e){}}
 async function refreshQuota(){try{const r=await fetch("/account/usage");if(r.ok){const d=await r.json();$("quotaInfo").textContent=(d.plan==="free"?"免费版":"会员 "+d.plan)+"：剩余 "+d.remaining+"/"+d.limit+" 条"+(d.plan==="free"?"（UTC 00:00重置）":"（当前会员周期）");}}catch(e){}}
-function showUser(phone){if(phone){refreshQuota();refreshMembership();}$("auth").classList.toggle("hidden",!!phone);$("chatArea").classList.toggle("hidden",!phone);$("who").textContent=phone||"";notice("");}
+function showUser(phone){if(phone){refreshQuota();refreshMembership();}$("auth").classList.toggle("hidden",!!phone);$("chatArea").classList.toggle("hidden",!phone);$("who").textContent=phone||"";$("sideWho").textContent=phone||"";notice("");}
 async function authenticate(mode){
  const phone=$("phone").value.trim(),password=$("password").value;
  if(!/^1[3-9]\d{9}$/.test(phone)){notice("请输入正确的11位中国大陆手机号");return;}
