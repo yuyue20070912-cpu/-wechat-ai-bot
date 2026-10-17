@@ -482,7 +482,7 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 #orderResult{padding:12px;border-radius:12px;background:#f0f2f6;font-size:13px;line-height:1.7;margin-top:10px}
 .member-safe{font-size:12px;color:#747b8b;line-height:1.6}
 @media(max-width:390px){.member-cards{grid-template-columns:1fr}}
-</style></head><body><main><h1>fishyeah Chat</h1>
+</style><link rel="stylesheet" href="/static/fishyeah-ui.css?v=1"></head><body><main><h1>fishyeah Chat</h1>
 <section id="auth"><h2 id="authTitle">登录</h2>
 <input id="phone" type="tel" inputmode="numeric" maxlength="11" autocomplete="tel" placeholder="中国大陆手机号">
 <input id="password" type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="密码（新账号至少10位，包含字母和数字）">
@@ -505,13 +505,13 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <div id="orderResult" aria-live="polite">订单创建后将在这里显示订单信息。</div><div id="qrPanel" class="hidden" style="text-align:center;margin:12px 0"><p id="qrTitle"></p><img id="paymentQR" alt="收款二维码" width="240" height="240" style="max-width:100%;image-rendering:pixelated;border-radius:12px"><p class="member-safe">请先核对金额。付款后填写支付时间和凭证信息，等待人工核实。</p></div><div id="paymentProof" class="hidden"><label for="payerNote">付款信息（付款时间、支付平台订单号等）</label><input id="payerNote" maxlength="160" placeholder="例：10月17日 20:30，支付订单号末6位123456"><button id="submitProofBtn">我已付款，提交核实信息</button></div>
 <p class="member-safe">当前使用个人收款码人工审核：请核对收款人及金额，付款后保存支付凭证；到账确认后才开通会员，不会自动扣费。</p>
 </details>
-<p id="quotaInfo">免费版每天可发送5条消息（UTC 00:00重置）</p><div id="chat"><div class="msg">🤖 你好，我是 fishyeah Chat。</div></div>
+<div class="ui-actions"><button id="themeBtn" type="button">◐ 切换主题</button><button id="newChatBtn" type="button">＋ 新对话</button></div><p id="quotaInfo">免费版每天可发送5条消息（UTC 00:00重置）</p><div id="chat"><div class="msg">🤖 你好，我是 fishyeah Chat。</div></div>
 <input id="message" placeholder="输入你的问题..."><button id="sendBtn">发送</button></section>
 <p id="notice" role="status"></p></main>
 <script>
 const $=id=>document.getElementById(id);
-let activeOrderId=null;
-const notice=msg=>$("notice").textContent=msg;
+let activeOrderId=null;\n
+document.getElementById("themeBtn").onclick=()=>{document.body.classList.toggle("dark");};\ndocument.getElementById("newChatBtn").onclick=()=>{document.getElementById("chat").replaceChildren();const el=document.createElement("div");el.className="msg";el.textContent="✦ 你好，我是 fishyeah Chat。有什么可以帮你？";document.getElementById("chat").appendChild(el);};\nconst notice=msg=>$("notice").textContent=msg;
 async function api(path,data){
  const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data||{})});
  const body=await response.json().catch(()=>({error:"网络或服务器错误"}));
@@ -578,7 +578,7 @@ $("registerBtn").onclick=()=>authenticate("register");
 $("logoutBtn").onclick=async()=>{try{await api("/auth/logout");showUser(null);}catch(e){notice(e.message);}};
 $("sendBtn").onclick=async()=>{
  const message=$("message").value.trim();if(!message)return;
- const add=(label,text)=>{const el=document.createElement("div");el.className="msg";el.textContent=label+" "+text;$("chat").appendChild(el);$("chat").scrollTop=$("chat").scrollHeight;};
+ const add=(label,text)=>{const el=document.createElement("div");el.className="msg"+(label==="🧑"?" user":label==="❌"?" error":"");el.textContent=label+" "+text;$("chat").appendChild(el);$("chat").scrollTop=$("chat").scrollHeight;};
  add("🧑",message);$("message").value="";$("sendBtn").disabled=true;
  try{const result=await api("/chat",{message});add("🤖",result.reply);}
  catch(e){add("❌",e.message);}
