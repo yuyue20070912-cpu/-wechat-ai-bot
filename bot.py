@@ -6,6 +6,7 @@ from io import BytesIO
 import qrcode
 from hashlib import sha256
 from functools import wraps
+from urllib.parse import urlsplit
 
 import psycopg
 from flask import Flask, jsonify, request, send_from_directory, send_file, session
@@ -25,6 +26,33 @@ MODEL = os.getenv("OPENAI_MODEL", "gpt-6-luna")
 FREE_DAILY_MESSAGES = 5  # UTC calendar day
 PAID_PLANS = {"basic": {"price_cny_fen": 990, "messages": 300}, "pro": {"price_cny_fen": 1990, "messages": 1000}}
 PHONE_PATTERN = re.compile(r"^1[3-9]\d{9}$")
+@app.before_request
+def validate_mutation_request():
+    """Reject cross-origin writes and non-object JSON before route handlers."""
+    if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return None
+    origin = request.headers.get("Origin")
+    try:
+        origin_host = urlsplit(origin).netloc.lower() if origin else None
+    except ValueError:
+        return jsonify(error="无效请求来源"), 403
+    if (request.headers.get("Sec-Fetch-Site") == "cross-site"
+            or (origin and origin_host != request.host.lower())):
+        return jsonify(error="不允许跨站操作，请刷新页面重试"), 403
+    if request.method == "POST" and not isinstance(request.get_json(silent=True), dict):
+        return jsonify(error="请求内容必须是 JSON 对象"), 400
+
+
+@app.after_request
+def security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
+    if request.path.startswith(("/auth/", "/account/", "/membership/orders", "/admin")):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 def payments_ready():
     return len(os.getenv("ADMIN_REVIEW_TOKEN", "")) >= 32
 
@@ -145,8 +173,11 @@ def reserve_message(user_id):
                 """, (sub[0],))
                 row = cur.fetchone()
                 return ("paid", sub[0], row[0] if row else None)
-    used = reserve_free_message(user_id)
-    return ("free", None, FREE_DAILY_MESSAGES-used if used is not None else None)
+    reservation = reserve_free_message(user_id)
+    if reservation is None:
+        return ("free", None, None)
+    used, usage_day = reservation
+    return ("free", usage_day, FREE_DAILY_MESSAGES-used)
 
 
 def refund_message(user_id, kind, subscription_id):
@@ -155,7 +186,7 @@ def refund_message(user_id, kind, subscription_id):
             with conn.cursor() as cur:
                 cur.execute("UPDATE subscriptions SET used=GREATEST(0,used-1) WHERE id=%s AND user_id=%s", (subscription_id,user_id))
     else:
-        refund_free_message(user_id)
+        refund_free_message(user_id, subscription_id)
 
 
 def require_login(fn):
@@ -197,13 +228,17 @@ def create_membership_order():
         return jsonify(error="支付尚未开放，请稍后再试"),503
     data = request.get_json(silent=True) or {}
     plan, method = data.get("plan"), data.get("payment_method")
-    if plan not in PAID_PLANS or method not in ("wechat", "alipay"):
+    if not isinstance(plan, str) or plan not in PAID_PLANS or method not in ("wechat", "alipay"):
         return jsonify(error="请选择有效套餐和付款方式"), 400
     reference = token_urlsafe(18)
     try:
         init_db()
         with db_connection() as conn:
             with conn.cursor() as cur:
+                # Lock the stable user row: an absent pending order cannot itself be locked.
+                cur.execute("SELECT id FROM users WHERE id=%s FOR UPDATE", (session["user_id"],))
+                if cur.fetchone() is None:
+                    return jsonify(error="账号不存在，请重新登录"), 401
                 cur.execute("SELECT id,plan,payment_method,amount_fen FROM membership_orders WHERE user_id=%s AND status='pending' ORDER BY created_at DESC LIMIT 1 FOR UPDATE", (session["user_id"],))
                 existing=cur.fetchone()
                 if existing:
@@ -262,7 +297,7 @@ def require_admin(fn):
     def wrapper(*args, **kwargs):
         expected = os.getenv("ADMIN_REVIEW_TOKEN", "")
         provided = request.headers.get("X-Admin-Token", "")
-        if len(expected) < 32 or not provided or not compare_digest(provided, expected):
+        if len(expected) < 32 or not provided or not compare_digest(provided.encode("utf-8"), expected.encode("utf-8")):
             return jsonify(error="无权访问"), 403
         return fn(*args, **kwargs)
     return wrapper
@@ -358,6 +393,8 @@ def admin_review_membership_order(order_id):
     data=request.get_json(silent=True) or {}
     decision=data.get("decision")
     payment_reference=data.get("payment_reference")
+    if isinstance(payment_reference, str):
+        payment_reference = payment_reference.strip()
     if decision not in ("approve","reject"):
         return jsonify(error="无效审核结果"),400
     if decision=="approve" and (not isinstance(payment_reference,str) or not 6 <= len(payment_reference) <= 128):
@@ -400,19 +437,19 @@ def reserve_free_message(user_id):
                 ON CONFLICT (user_id, usage_day)
                 DO UPDATE SET used = daily_message_usage.used + 1
                 WHERE daily_message_usage.used < %s
-                RETURNING used
+                RETURNING used, usage_day
             """, (user_id, FREE_DAILY_MESSAGES))
             row = cur.fetchone()
-            return row[0] if row else None
+            return row
 
 
-def refund_free_message(user_id):
+def refund_free_message(user_id, usage_day):
     with db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 UPDATE daily_message_usage SET used = GREATEST(0, used - 1)
-                WHERE user_id = %s AND usage_day = (NOW() AT TIME ZONE 'UTC')::date
-            """, (user_id,))
+                WHERE user_id = %s AND usage_day = %s
+            """, (user_id, usage_day))
 
 
 
@@ -506,28 +543,32 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <p class="member-safe">当前使用个人收款码人工审核：请核对收款人及金额，付款后保存支付凭证；到账确认后才开通会员，不会自动扣费。</p>
 </details>
 <div class="ui-actions"><button id="themeBtn" type="button">◐ 切换主题</button><button id="newChatBtn" type="button">＋ 新对话</button></div><p id="quotaInfo">免费版每天可发送5条消息（UTC 00:00重置）</p><div id="chat"><div class="chat-row from-ai"><img class="chat-avatar" src="/app-icon" alt="fishyeah Chat"><div class="msg">你好，我是 fishyeah Chat。</div></div></div>
-<input id="message" placeholder="输入你的问题..."><button id="sendBtn">发送</button></section>
+<input id="message" maxlength="4000" aria-label="聊天消息" placeholder="输入你的问题..."><button id="sendBtn">发送</button></section>
 <p id="notice" role="status"></p></main>
 <script>
 const $=id=>document.getElementById(id);
 let activeOrderId=null;
+let accountEpoch=0;
+function resetChat(){const greeting=document.createElement("div");greeting.className="msg";greeting.textContent="你好，我是 fishyeah Chat。有什么可以帮你？";$("chat").replaceChildren(greeting);}
 
 document.getElementById("themeBtn").onclick=()=>{document.body.classList.toggle("dark");};
-document.getElementById("newChatBtn").onclick=()=>{document.getElementById("chat").replaceChildren();const el=document.createElement("div");el.className="msg";el.textContent="✦ 你好，我是 fishyeah Chat。有什么可以帮你？";document.getElementById("chat").appendChild(el);};
+document.getElementById("newChatBtn").onclick=resetChat;
 const side=document.getElementById("fishSide");const sideToggle=document.getElementById("sideToggle");sideToggle.onclick=()=>{const open=side.classList.toggle("open");sideToggle.setAttribute("aria-expanded",String(open));sideToggle.textContent=open?"✕ 关闭":"☰ 菜单";};["security","membership","quotaInfo","logoutBtn"].forEach(id=>document.getElementById("sideContents").appendChild(document.getElementById(id)));
 const notice=msg=>$("notice").textContent=msg;
 async function api(path,data){
+ const epoch=accountEpoch;
  const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data||{})});
  const body=await response.json().catch(()=>({error:"网络或服务器错误"}));
+ if(epoch!==accountEpoch)throw Error("账号已切换，请重试");
  if(!response.ok)throw Error(body.error||"请求失败");
  return body;
 }
-async function refreshMembership(){try{const r=await fetch("/membership/plans");if(r.ok){const d=await r.json();if(!d.payments_enabled){$("createOrderBtn").disabled=true;$("createOrderBtn").textContent="支付尚未开放";$("orderResult").textContent="会员页面已上线，支付尚未开放。请勿转账。";}else{$("createOrderBtn").disabled=false;$("createOrderBtn").textContent="创建会员订单";}}}catch(e){}}
-async function refreshQuota(){try{const r=await fetch("/account/usage");if(r.ok){const d=await r.json();$("quotaInfo").textContent=(d.plan==="free"?"免费版":"会员 "+d.plan)+"：剩余 "+d.remaining+"/"+d.limit+" 条"+(d.plan==="free"?"（UTC 00:00重置）":"（当前会员周期）");}}catch(e){}}
-function showUser(phone){if(phone){refreshQuota();refreshMembership();}$("auth").classList.toggle("hidden",!!phone);$("chatArea").classList.toggle("hidden",!phone);$("who").textContent=phone||"";$("sideWho").textContent=phone||"";notice("");}
+async function refreshMembership(){const epoch=accountEpoch;try{const r=await fetch("/membership/plans");if(r.ok){const d=await r.json();if(epoch!==accountEpoch)return;if(!d.payments_enabled){$("createOrderBtn").disabled=true;$("createOrderBtn").textContent="支付尚未开放";$("orderResult").textContent="会员页面已上线，支付尚未开放。请勿转账。";}else{$("createOrderBtn").disabled=false;$("createOrderBtn").textContent="创建会员订单";}}}catch(e){}}
+async function refreshQuota(){const epoch=accountEpoch;try{const r=await fetch("/account/usage");if(r.ok){const d=await r.json();if(epoch!==accountEpoch)return;$("quotaInfo").textContent=(d.plan==="free"?"免费版":"会员 "+d.plan)+"：剩余 "+d.remaining+"/"+d.limit+" 条"+(d.plan==="free"?"（UTC 00:00重置）":"（当前会员周期）");}}catch(e){}}
+function showUser(phone){accountEpoch++;$("oldPassword").value=$("newPassword").value="";side.classList.remove("open");sideToggle.setAttribute("aria-expanded","false");sideToggle.textContent="☰ 菜单";$("sendBtn").disabled=false;$("newChatBtn").disabled=false;activeOrderId=null;$("payerNote").value="";$("paymentProof").classList.add("hidden");$("qrPanel").classList.add("hidden");$("paymentQR").removeAttribute("src");resetChat();$("message").value="";$("orderResult").textContent="订单创建后将在这里显示订单信息。";if(phone){refreshQuota();refreshMembership();}$("auth").classList.toggle("hidden",!!phone);$("chatArea").classList.toggle("hidden",!phone);$("who").textContent=phone||"";$("sideWho").textContent=phone||"";notice("");}
 async function authenticate(mode){
  const phone=$("phone").value.trim(),password=$("password").value;
- if(!/^1[3-9]\d{9}$/.test(phone)){notice("请输入正确的11位中国大陆手机号");return;}
+ if(!/^1[3-9]\\d{9}$/.test(phone)){notice("请输入正确的11位中国大陆手机号");return;}
  if(mode==="register" && (password.length<10 || /^\\d+$/.test(password) || /^[a-zA-Z]+$/.test(password))){notice("新密码至少10位，不能只包含数字或字母");return;}
  if(mode==="login" && password.length<8){notice("请输入密码");return;}
  $("loginBtn").disabled=$("registerBtn").disabled=true;
@@ -560,9 +601,11 @@ $("submitProofBtn").onclick=async()=>{
  finally{$("submitProofBtn").disabled=false;}
 };
 $("ordersBtn").onclick=async()=>{
+ const epoch=accountEpoch;
  try{
   const r=await fetch("/membership/orders");
   const d=await r.json();
+  if(epoch!==accountEpoch)return;
   if(!r.ok)throw Error(d.error||"订单查询失败");
   $("orderResult").textContent=d.orders.length?d.orders.map(o=>"订单 #"+o.id+" · "+o.plan+" · ¥"+o.amount_cny+" · "+o.status).join("\\n"):"暂无订单";
  }catch(e){notice(e.message);}
@@ -581,14 +624,18 @@ $("loginBtn").onclick=()=>authenticate("login");
 $("registerBtn").onclick=()=>authenticate("register");
 $("logoutBtn").onclick=async()=>{try{await api("/auth/logout");showUser(null);}catch(e){notice(e.message);}};
 $("sendBtn").onclick=async()=>{
+ if($("sendBtn").disabled)return;
  const message=$("message").value.trim();if(!message)return;
+ if(message.length>4000){notice("请输入不超过4000字的消息");return;}
  const add=(label,text)=>{const el=document.createElement("div");const isUser=label==="🧑";el.className="msg"+(isUser?" user":label==="❌"?" error":"");el.textContent=text;const row=document.createElement("div");row.className="chat-row "+(isUser?"from-user":"from-ai");const avatar=document.createElement("img");avatar.className="chat-avatar";avatar.alt=isUser?"我的头像":"fishyeah Chat";avatar.src=isUser?"/static/chat-user-avatar.svg":"/app-icon";if(isUser){row.append(el,avatar);}else{row.append(avatar,el);} $("chat").appendChild(row);$("chat").scrollTop=$("chat").scrollHeight;};
- add("🧑",message);$("message").value="";$("sendBtn").disabled=true;
- try{const result=await api("/chat",{message});add("🤖",result.reply);}
- catch(e){add("❌",e.message);}
- finally{$("sendBtn").disabled=false;refreshQuota();}
+ const epoch=accountEpoch;
+ add("🧑",message);$("message").value="";$("sendBtn").disabled=true;$("newChatBtn").disabled=true;
+ try{const result=await api("/chat",{message});if(epoch===accountEpoch)add("🤖",result.reply);}
+ catch(e){if(epoch===accountEpoch)add("❌",e.message);}
+ finally{if(epoch===accountEpoch){$("sendBtn").disabled=false;$("newChatBtn").disabled=false;refreshQuota();}}
 };
-fetch("/auth/me").then(r=>r.json()).then(data=>showUser(data.phone||null)).catch(()=>{});
+const initialEpoch=accountEpoch;
+fetch("/auth/me").then(r=>r.json()).then(data=>{if(initialEpoch===accountEpoch)showUser(data.phone||null);}).catch(()=>{});
 </script></body></html>"""
 
 
@@ -638,7 +685,7 @@ def register():
 def login():
     data = request.get_json(silent=True) or {}
     phone, password = data.get("phone"), data.get("password")
-    if not isinstance(phone, str) or not PHONE_PATTERN.fullmatch(phone) or not isinstance(password, str):
+    if not isinstance(phone, str) or not PHONE_PATTERN.fullmatch(phone) or not isinstance(password, str) or not 8 <= len(password) <= 128:
         return jsonify(error="手机号或密码错误"), 401
     try:
         init_db()
@@ -664,7 +711,8 @@ def login():
 def change_password():
     data = request.get_json(silent=True) or {}
     old_password, new_password = data.get("old_password"), data.get("new_password")
-    if not isinstance(old_password, str) or not isinstance(new_password, str):
+    if (not isinstance(old_password, str) or not 8 <= len(old_password) <= 128
+            or not isinstance(new_password, str)):
         return jsonify(error="请输入当前密码和新密码"), 400
     if not 10 <= len(new_password) <= 128 or new_password.isdigit() or new_password.isalpha():
         return jsonify(error="新密码至少10位，需包含不同类型字符"), 400
@@ -702,6 +750,8 @@ def chat():
     message = data.get("message")
     if not isinstance(message, str) or not message.strip() or len(message) > 4000:
         return jsonify(error="请输入不超过4000字的消息"), 400
+    if not os.getenv("OPENAI_API_KEY"):
+        return jsonify(error="AI 服务暂未配置，请联系管理员"), 503
     user_id = session["user_id"]
     try:
         init_db()
@@ -712,9 +762,13 @@ def chat():
     if remaining is None:
         return jsonify(error="当前消息额度已用完，请等待重置或续费"), 429
     try:
-        client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-        response = client.responses.create(model=MODEL, input=message.strip())
-        return jsonify(reply=response.output_text, remaining=remaining)
+        with OpenAI(api_key=os.environ["OPENAI_API_KEY"], timeout=20.0, max_retries=0) as client:
+            response = client.responses.create(
+                model=MODEL, input=message.strip(), max_output_tokens=2048)
+        reply = response.output_text
+        if getattr(response, "status", "completed") != "completed" or not isinstance(reply, str) or not reply.strip():
+            raise ValueError("AI response did not contain a complete text reply")
+        return jsonify(reply=reply, remaining=remaining)
     except Exception:
         app.logger.exception("AI request failed")
         try:
