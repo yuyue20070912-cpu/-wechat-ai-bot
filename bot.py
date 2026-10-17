@@ -482,7 +482,7 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 #orderResult{padding:12px;border-radius:12px;background:#f0f2f6;font-size:13px;line-height:1.7;margin-top:10px}
 .member-safe{font-size:12px;color:#747b8b;line-height:1.6}
 @media(max-width:390px){.member-cards{grid-template-columns:1fr}}
-</style><link rel="stylesheet" href="/static/fishyeah-ui.css?v=1"><link rel="stylesheet" href="/static/chat-focus.css?v=3"></head><body><main><h1>fishyeah Chat</h1>
+</style><link rel="stylesheet" href="/static/fishyeah-ui.css?v=1"><link rel="stylesheet" href="/static/chat-focus.css?v=4"></head><body><main><h1>fishyeah Chat</h1>
 <section id="auth"><h2 id="authTitle">登录</h2>
 <input id="phone" type="tel" inputmode="numeric" maxlength="11" autocomplete="tel" placeholder="中国大陆手机号">
 <input id="password" type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="密码（新账号至少10位，包含字母和数字）">
