@@ -510,8 +510,11 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <p id="notice" role="status"></p></main>
 <script>
 const $=id=>document.getElementById(id);
-let activeOrderId=null;\n
-document.getElementById("themeBtn").onclick=()=>{document.body.classList.toggle("dark");};\ndocument.getElementById("newChatBtn").onclick=()=>{document.getElementById("chat").replaceChildren();const el=document.createElement("div");el.className="msg";el.textContent="✦ 你好，我是 fishyeah Chat。有什么可以帮你？";document.getElementById("chat").appendChild(el);};\nconst notice=msg=>$("notice").textContent=msg;
+let activeOrderId=null;
+
+document.getElementById("themeBtn").onclick=()=>{document.body.classList.toggle("dark");};
+document.getElementById("newChatBtn").onclick=()=>{document.getElementById("chat").replaceChildren();const el=document.createElement("div");el.className="msg";el.textContent="✦ 你好，我是 fishyeah Chat。有什么可以帮你？";document.getElementById("chat").appendChild(el);};
+const notice=msg=>$("notice").textContent=msg;
 async function api(path,data){
  const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data||{})});
  const body=await response.json().catch(()=>({error:"网络或服务器错误"}));
