@@ -505,7 +505,7 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <div id="orderResult" aria-live="polite">订单创建后将在这里显示订单信息。</div><div id="qrPanel" class="hidden" style="text-align:center;margin:12px 0"><p id="qrTitle"></p><img id="paymentQR" alt="收款二维码" width="240" height="240" style="max-width:100%;image-rendering:pixelated;border-radius:12px"><p class="member-safe">请先核对金额。付款后填写支付时间和凭证信息，等待人工核实。</p></div><div id="paymentProof" class="hidden"><label for="payerNote">付款信息（付款时间、支付平台订单号等）</label><input id="payerNote" maxlength="160" placeholder="例：10月17日 20:30，支付订单号末6位123456"><button id="submitProofBtn">我已付款，提交核实信息</button></div>
 <p class="member-safe">当前使用个人收款码人工审核：请核对收款人及金额，付款后保存支付凭证；到账确认后才开通会员，不会自动扣费。</p>
 </details>
-<div class="ui-actions"><button id="themeBtn" type="button">◐ 切换主题</button><button id="newChatBtn" type="button">＋ 新对话</button></div><p id="quotaInfo">免费版每天可发送5条消息（UTC 00:00重置）</p><div id="chat"><div class="msg">🤖 你好，我是 fishyeah Chat。</div></div>
+<div class="ui-actions"><button id="themeBtn" type="button">◐ 切换主题</button><button id="newChatBtn" type="button">＋ 新对话</button></div><p id="quotaInfo">免费版每天可发送5条消息（UTC 00:00重置）</p><div id="chat"><div class="chat-row from-ai"><img class="chat-avatar" src="/app-icon" alt="fishyeah Chat"><div class="msg">你好，我是 fishyeah Chat。</div></div></div>
 <input id="message" placeholder="输入你的问题..."><button id="sendBtn">发送</button></section>
 <p id="notice" role="status"></p></main>
 <script>
@@ -582,7 +582,7 @@ $("registerBtn").onclick=()=>authenticate("register");
 $("logoutBtn").onclick=async()=>{try{await api("/auth/logout");showUser(null);}catch(e){notice(e.message);}};
 $("sendBtn").onclick=async()=>{
  const message=$("message").value.trim();if(!message)return;
- const add=(label,text)=>{const el=document.createElement("div");el.className="msg"+(label==="🧑"?" user":label==="❌"?" error":"");el.textContent=label+" "+text;$("chat").appendChild(el);$("chat").scrollTop=$("chat").scrollHeight;};
+ const add=(label,text)=>{const el=document.createElement("div");const isUser=label==="🧑";el.className="msg"+(isUser?" user":label==="❌"?" error":"");el.textContent=text;const row=document.createElement("div");row.className="chat-row "+(isUser?"from-user":"from-ai");const avatar=document.createElement("img");avatar.className="chat-avatar";avatar.alt=isUser?"我的头像":"fishyeah Chat";avatar.src=isUser?"/static/chat-user-avatar.svg":"/app-icon";if(isUser){row.append(el,avatar);}else{row.append(avatar,el);} $("chat").appendChild(row);$("chat").scrollTop=$("chat").scrollHeight;};
  add("🧑",message);$("message").value="";$("sendBtn").disabled=true;
  try{const result=await api("/chat",{message});add("🤖",result.reply);}
  catch(e){add("❌",e.message);}
