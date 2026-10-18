@@ -65,7 +65,10 @@ def test_voice_browser_permissions_native_recording_and_fallback(user,engine,wid
             if page.evaluate('Boolean(window.nativeRecorder)'):
                 pw.expect(page.locator('#voice-stop')).to_be_enabled()
                 page.wait_for_function('document.querySelector("#voice-clock").textContent.includes("录音 1")')
-                page.locator('#voice-stop').click();pw.expect(page.locator('#voice-preview')).to_be_visible()
+                # Advance only the elapsed-time clock: native recording still contains real samples.
+                page.evaluate('()=>{const original=performance.now.bind(performance);window.originalPerformanceNow=original;performance.now=()=>original()+119000;}')
+                pw.expect(page.locator('#voice-preview')).to_be_visible()
+                page.evaluate('()=>{performance.now=window.originalPerformanceNow;}')
                 page.wait_for_function('document.querySelector("#voice-preview").readyState>=1')
                 assert page.evaluate('window.testMicTrack.readyState')=='ended'
                 assert page.locator('#voice-preview').evaluate('(a)=>a.error===null')

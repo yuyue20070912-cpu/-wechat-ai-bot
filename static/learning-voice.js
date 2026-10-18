@@ -139,7 +139,8 @@
         note('录音已停止，仅保存在本页。请试听后主动选择上传转写，或切换文字。'); controls();
       };
       recorder.start(500); started = performance.now();
-      timer = setInterval(() => { const seconds = Math.floor((performance.now()-started)/1000); $('voice-clock').textContent = `录音 ${seconds} / 120 秒`; if (seconds >= 120) stop(); },250);
+      // Reserve one second for encoder padding and stop-event scheduling.
+      timer = setInterval(() => { const seconds = Math.floor((performance.now()-started)/1000); $('voice-clock').textContent = `录音 ${seconds} / 120 秒`; if (seconds >= 119) stop(); },250);
       note('正在录音；停止后才能上传。');
     } catch (error) { release(); note(error.name === 'NotAllowedError' ? '麦克风权限被拒绝。请在 Safari 网站设置中允许，或直接使用文字模式。' : '麦克风不可用，请使用文字模式。'); }
     finally { busy = false; controls(); }
