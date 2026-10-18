@@ -13,6 +13,88 @@ import bot
 from learning.diagnostics import TESTS
 
 
+@pytest.mark.parametrize('engine', ['chromium','webkit'])
+@pytest.mark.parametrize('width,color', [(390,'light'),(1440,'dark')])
+def test_voice_browser_permissions_native_recording_and_fallback(user,engine,width,color,tmp_path):
+    """Native recording when exposed; Linux WebKit fallback is not hardware Safari."""
+    pw=pytest.importorskip('playwright.sync_api')
+    server=make_server('127.0.0.1',0,bot.app,threaded=True)
+    thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+    origin=f'http://127.0.0.1:{server.server_port}'
+    c=bot.app.test_client()
+    with c.session_transaction() as s:s['user_id']=user
+    try:
+        with pw.sync_playwright() as p:
+            bt=getattr(p,engine);chromium=shutil.which('chromium')
+            if not Path(bt.executable_path).exists() and not (engine=='chromium' and chromium):
+                if os.getenv('CI'):pytest.fail('Required browser missing')
+                pytest.skip('Browser not installed')
+            browser=bt.launch(env={**os.environ,'TMPDIR':str(tmp_path)},**({'executable_path':chromium,'args':['--no-sandbox']} if engine=='chromium' and chromium else {}))
+            context=browser.new_context(viewport={'width':width,'height':844},color_scheme=color)
+            context.add_cookies([{'name':'session','value':c.get_cookie('session').value,'url':origin}])
+            page=context.new_page();errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+            page.add_init_script('''
+              window.micCalls=0;window.denyMic=true;
+              window.nativeRecorder=window.MediaRecorder;
+              // Permission denial is exercised before construction. Restore capability below.
+              if(!window.MediaRecorder)window.MediaRecorder=function(){};
+              Object.defineProperty(navigator,'mediaDevices',{configurable:true,value:{getUserMedia:async()=>{
+                window.micCalls++;
+                if(window.denyMic)throw new DOMException('denied','NotAllowedError');
+                const ctx=new AudioContext();await ctx.resume();
+                const oscillator=ctx.createOscillator(),destination=ctx.createMediaStreamDestination();
+                oscillator.connect(destination);oscillator.start();
+                window.testMicTrack=destination.stream.getAudioTracks()[0];
+                window.testMicContext=ctx;return destination.stream;
+              }}});
+            ''')
+            page.goto(origin+'/learning');page.locator('[data-exam="ielts"]').click()
+            page.locator('#voice-start').click();page.locator('#voice-part').filter(has_text='Part 1').wait_for()
+            assert page.evaluate('window.micCalls')==0
+            assert page.locator('#voice-record').is_disabled()
+            page.locator('#voice-consent').check();page.locator('#voice-record').click()
+            pw.expect(page.locator('#voice-status')).to_contain_text('麦克风权限被拒绝')
+            assert page.evaluate('window.micCalls')==1
+            page.locator('#voice-text-mode').click();page.locator('#voice-answer').fill('I like the peaceful park near my home.')
+            page.locator('#voice-next').click();pw.expect(page.locator('#voice-part')).to_contain_text('第 2 / 7')
+            page.reload();page.locator('[data-exam="ielts"]').click()
+            page.locator('#voice-history option').wait_for(state='attached');page.locator('#voice-resume').click()
+            pw.expect(page.locator('#voice-turns')).to_contain_text('peaceful park')
+            page.locator('#voice-consent').check();page.evaluate('()=>{window.denyMic=false;window.MediaRecorder=window.nativeRecorder;}')
+            page.locator('#voice-record').click()
+            if page.evaluate('Boolean(window.nativeRecorder)'):
+                pw.expect(page.locator('#voice-stop')).to_be_enabled()
+                page.wait_for_function('document.querySelector("#voice-clock").textContent.includes("录音 1")')
+                page.locator('#voice-stop').click();pw.expect(page.locator('#voice-preview')).to_be_visible()
+                page.wait_for_function('document.querySelector("#voice-preview").readyState>=1')
+                assert page.evaluate('window.testMicTrack.readyState')=='ended'
+                assert page.locator('#voice-preview').evaluate('(a)=>a.error===null')
+            else:
+                pw.expect(page.locator('#voice-status')).to_contain_text('浏览器或当前连接不支持录音')
+                assert page.evaluate('window.micCalls')==0
+            assert page.locator('#voice-transcribe').is_disabled()
+            # Both accent assets exercise native browser MP3 decoding and user gesture playback.
+            for accent in ('gb','us'):
+                page.locator('#voice-accent').select_option(accent)
+                page.locator('#voice-example').evaluate('(a)=>{a.preload="metadata";a.load();}')
+                try:
+                    page.wait_for_function('document.querySelector("#voice-example").readyState>=1',timeout=5000)
+                except Exception:
+                    pytest.fail(str(page.locator('#voice-example').evaluate('(a)=>({src:a.currentSrc,network:a.networkState,ready:a.readyState,error:a.error?.message,canPlay:a.canPlayType("audio/mpeg")})')))
+                page.locator('#voice-example').click()
+                assert page.locator('#voice-example').evaluate('(a)=>a.error===null')
+            page.locator('#voice-clear').click();assert page.locator('#voice-preview').is_hidden()
+            page.locator('[data-exam="cet4"]').click()
+            page.locator('#voice-listening-options button').first.wait_for()
+            page.locator('#voice-listening-options button').first.click()
+            page.locator('#mock-material audio').wait_for()
+            page.wait_for_function('document.querySelector("#mock-material audio").readyState>=1')
+            assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+            assert not errors
+            context.close();browser.close()
+    finally:server.shutdown();thread.join(timeout=5)
+
+
 @pytest.mark.parametrize('width,height,color', [(390, 844, 'light'), (1440, 1000, 'light'), (375, 812, 'dark')])
 @pytest.mark.parametrize('engine', ['chromium', 'webkit'])
 def test_learning_browser(user, ai, width, height, color, engine):
@@ -87,7 +169,7 @@ def test_learning_browser(user, ai, width, height, color, engine):
             assert not page.locator('#question-material').evaluate('(node) => node.open')
             page.locator('#material-label').click()
             assert page.locator('#material-text').is_visible()
-            assert page.locator('audio').count() == 0
+            assert page.locator('#practice-section audio').count() == 0
             page.locator('#diagnostic-details > summary').click()
             for q in TESTS['cet4']:
                 page.locator(f'input[name="diag-{q["id"]}"][value="{(q["correct_index"]+1)%3}"]').check()

@@ -20,7 +20,7 @@
 
 ## 回退与中断
 
-- 首选先把 `LEARNING_AI_ENABLED` 设为 0，停止新增 AI 费用；读取题库、档案、历史仍可用。
+- 首选把 `LEARNING_AI_ENABLED`、`LEARNING_VOICE_ENABLED`、`LEARNING_VOICE_FEEDBACK_ENABLED` 均设为 0，停止新增 AI 费用；读取题库、档案、历史仍可用。语音转写是独立开关，仅关闭文字 AI 总开关不会关闭语音转写。
 - 迁移失败无需手工清理：事务会撤回本次学习 schema 改动。命令不会运行在 HTTP 请求路径。
 - 应用回退时保留 learning_* 表和已保存数据，旧代码不依赖这些表，禁止用 DROP 或数据回滚撤销迁移。
 - 若已有 AI 请求，先等待 45 秒上游超时及在途请求结束；5 分钟后在经授权环境执行 `flask --app bot learning-recover`，每批最多 100 条，可重复执行。对账后再决定是否回退应用。
@@ -28,6 +28,8 @@
 - 数据损坏时由数据库负责人按既定恢复流程处理，不能直接把整个数据库回滚到旧时间点，否则会丢失聊天额度、订阅和支付订单的新记录。
 
 ## 本次验证边界
+
+第五阶段 `005_learning_voice.sql` 仅新增口语会话和音频秒数预算表、历史索引。需要测试库从004升级/重复迁移/失败回滚，先迁移再发布；回退保留新表和计费账本，不减预算。语音转写依赖 ffmpeg，缺失则能力关闭。`LEARNING_VOICE_ENABLED=0`、`LEARNING_VOICE_FEEDBACK_ENABLED=0`、`LEARNING_VOICE_VERIFIED_MODEL` 为空，直至真实接口验证与 Safari 真机验收通过并获准启用。详见[第五阶段边界与检查清单](ai-learning-platform-phase-5.md)。本轮未进行任何正式环境操作。
 
 第四阶段迁移 `004_learning_mock_exams.sql` 仅新增独立表/索引，不改旧计划日期或任务、不批量回填时区；没有偏好时应用按 Asia/Shanghai 解释今日日期，已有计划快照保留原时区标识。必须先迁移再发布；回退应用保留新表。新增 `LEARNING_MOCK_AI_ENABLED=0` 也应保持关闭，直至单独获准。音频文件随源码提供，无运行时生成或外部语音 API 费用。
 

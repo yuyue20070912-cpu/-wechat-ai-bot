@@ -21,7 +21,7 @@
   }
   function lock(value) {
     busy=value;document.body.dataset.hubBusy=String(value);
-    document.querySelectorAll('.exam').forEach(button=>{button.disabled=value||document.body.dataset.practiceBusy==='true'||document.body.dataset.mockBusy==='true';});
+    document.querySelectorAll('.exam').forEach(button=>{button.disabled=value||document.body.dataset.voiceBusy==='true'||document.body.dataset.practiceBusy==='true'||document.body.dataset.mockBusy==='true';});
     el('learning-hub').setAttribute('aria-busy',String(value));
   }
   async function action(work, message) {

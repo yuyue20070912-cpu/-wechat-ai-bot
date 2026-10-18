@@ -177,3 +177,5 @@ def register_personalization(bp, connection, require_login, rate_limit, ai_provi
 
     from .mock_routes import register_mocks
     register_mocks(bp,connection,checked,payload,limit,rate_limit,ai_provider,model)
+    from .voice_routes import register_voice
+    register_voice(bp,connection,checked,payload,limit,rate_limit,ai_provider,model)

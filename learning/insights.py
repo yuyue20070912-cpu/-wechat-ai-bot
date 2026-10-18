@@ -16,7 +16,7 @@ def overview(connection, user_id, exam):
         days = conn.execute('''WITH settings AS (SELECT %s::text AS tz), activity AS (
             SELECT (created_at AT TIME ZONE (SELECT tz FROM settings))::date AS day FROM learning_diagnostics WHERE user_id=%s AND exam_type=%s
             UNION SELECT (finished_at AT TIME ZONE (SELECT tz FROM settings))::date FROM learning_attempts
-                WHERE user_id=%s AND exam_type=%s AND status='completed' AND question_id NOT LIKE 'diagnostic-%%' AND question_id NOT LIKE 'mock-%%'
+                WHERE user_id=%s AND exam_type=%s AND status='completed' AND question_id NOT LIKE 'diagnostic-%%' AND question_id NOT LIKE 'mock-%%' AND question_id NOT LIKE 'voice-%%'
             UNION SELECT (t.completed_at AT TIME ZONE (SELECT tz FROM settings))::date FROM learning_tasks t
                 WHERE user_id=%s AND exam_type=%s AND completed
             UNION SELECT (e.reviewed_at AT TIME ZONE (SELECT tz FROM settings))::date FROM learning_review_events e
@@ -33,7 +33,7 @@ def overview(connection, user_id, exam):
             (array_agg((feedback->>'score')::numeric ORDER BY finished_at,request_id))[1],
             (array_agg((feedback->>'score')::numeric ORDER BY finished_at DESC,request_id DESC))[1]
             FROM learning_attempts WHERE user_id=%s AND exam_type=%s AND status='completed'
-            AND question_id NOT LIKE 'diagnostic-%%' AND question_id NOT LIKE 'mock-%%' GROUP BY skill ORDER BY skill''', (user_id, exam)).fetchall()
+            AND question_id NOT LIKE 'diagnostic-%%' AND question_id NOT LIKE 'mock-%%' AND question_id NOT LIKE 'voice-%%' GROUP BY skill ORDER BY skill''', (user_id, exam)).fetchall()
         review = conn.execute('''SELECT COUNT(*),COUNT(*) FILTER (WHERE due_at<=NOW()),
             COUNT(*) FILTER (WHERE state='mastered') FROM learning_review_items WHERE user_id=%s AND exam_type=%s''',
             (user_id, exam)).fetchone()
