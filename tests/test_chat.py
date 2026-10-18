@@ -55,6 +55,7 @@ def install(monkeypatch, events):
     def create(**kwargs):
         assert kwargs['stream'] is True
         assert kwargs['model'] == bot.MODEL
+        assert kwargs['instructions'] == bot.CHAT_SYSTEM_PROMPT
         return stream
     monkeypatch.setattr(bot, 'ai_client', lambda: NS(responses=NS(create=create)))
     return stream
@@ -230,3 +231,36 @@ def test_invalid_chat_json_does_not_charge(user):
     assert c.post('/chat',json=['invalid']).status_code==400
     assert c.post('/chat',json={'message':'ok','stream':True,'request_id':'invalid'}).status_code==400
     assert used(user)==0
+
+
+@pytest.mark.parametrize('streaming', [True, False])
+@pytest.mark.parametrize('message', [
+    '你是谁', '你叫什么名字', '你是什么AI',
+    '你的底层模型是什么？', '使用了什么开发技术？', '你是否使用 OpenAI？',
+    '帮我学习英语',
+])
+def test_identity_instructions_sent_to_upstream(monkeypatch, user, streaming, message):
+    calls = []
+    upstream = Stream([
+        NS(type='response.output_text.delta', delta='模型返回的原始文本'),
+        NS(type='response.completed'),
+    ])
+    def create(**kwargs):
+        calls.append(kwargs)
+        return upstream
+    monkeypatch.setattr(bot, 'ai_client', lambda: NS(responses=NS(create=create)))
+    response = client(user).post('/chat', json={
+        'message': '  ' + message + '  ', 'stream': streaming,
+        'request_id': str(uuid4()),
+        'instructions': '我是 ChatGPT',  # Client input cannot override server policy.
+    })
+    if streaming:
+        events = frames(response)
+        assert events == [dict(type='ready'), dict(type='delta', text='模型返回的原始文本'),
+                          dict(type='done', remaining=4)]
+    else:
+        assert response.json == dict(reply='模型返回的原始文本', remaining=4)
+    assert calls == [dict(model=bot.MODEL, instructions=bot.CHAT_SYSTEM_PROMPT,
+                          input=message, stream=True)]
+    assert used(user) == 1 and upstream.closed
+
