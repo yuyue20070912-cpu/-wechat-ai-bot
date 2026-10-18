@@ -2,6 +2,7 @@
 import shutil
 import os
 import json
+import re
 from pathlib import Path
 from threading import Thread
 
@@ -113,6 +114,46 @@ def test_learning_browser(user, ai, width, height, color, engine):
             playwright.expect(page.get_by_role('checkbox',name=task_name,exact=True)).to_be_checked()
             playwright.expect(page.locator('#diagnostic-summary')).to_contain_text('0/6 题正确')
             assert len(ai.calls)==1
+            playwright.expect(page.locator('#learning-timezone')).to_have_value('Asia/Shanghai')
+            playwright.expect(page.locator('#screening-group')).to_contain_text('题组 2/3')
+            page.locator('#learning-timezone').fill('America/New_York')
+            page.get_by_role('button',name='保存时区',exact=True).click()
+            page.get_by_text('时区已保存，今日计划按新时区恢复。',exact=True).wait_for()
+            page.locator('#mock-template').select_option('cet4-reading-a-short-v1')
+            page.locator('#mock-start').click()
+            page.locator('input[name="mock-r1"][value="1"]').wait_for()
+            page.locator('input[name="mock-r1"][value="1"]').check()
+            page.get_by_text('答案已同步到服务器。',exact=True).wait_for()
+            active=page.request.get(origin+'/api/learning/mocks?exam=cet4').json()['active_id']
+            before=page.request.get(origin+'/api/learning/mocks/'+active).json()['session']
+            page.reload();page.locator('[data-exam="cet4"]').click()
+            playwright.expect(page.locator('#learning-timezone')).to_have_value('America/New_York')
+            page.locator('#mock-resume').click()
+            playwright.expect(page.locator('input[name="mock-r1"][value="1"]')).to_be_checked()
+            assert page.request.get(origin+'/api/learning/mocks/'+active).json()['session']['deadline']==before['deadline']
+            page.once('dialog',lambda dialog:dialog.accept())
+            page.locator('#mock-submit').click()
+            page.get_by_text('已交卷，报告已保存。',exact=True).wait_for()
+            playwright.expect(page.locator('#mock-report-content')).to_contain_text('25%')
+            page.locator('#mock-template').select_option('cet4-writing-a-short-v1')
+            page.locator('#mock-start').click();page.get_by_label('模考答案',exact=True).wait_for()
+            context.set_offline(True)
+            draft='Libraries help students learn together. I support public funding.'
+            page.get_by_label('模考答案',exact=True).fill(draft)
+            page.locator('#mock-status').filter(has_text='同步未确认').wait_for()
+            context.set_offline(False);page.reload();page.locator('[data-exam="cet4"]').click()
+            page.locator('#mock-resume').click()
+            playwright.expect(page.get_by_label('模考答案',exact=True)).to_have_value(draft)
+            page.locator('#mock-status').filter(has_text=re.compile('已恢复服务器答案|答案已同步到服务器')).wait_for()
+            page.once('dialog',lambda dialog:dialog.accept());page.locator('#mock-submit').click()
+            page.get_by_text('已交卷，报告已保存。',exact=True).wait_for()
+            assert page.locator('#mock-report-content button').is_disabled()
+            assert len(ai.calls)==1  # mock lifecycle and recovery did not trigger paid grading
+            page.locator('#mock-template').select_option('cet4-listening-a-short-v1')
+            page.locator('#mock-start').click()
+            page.locator('#mock-material audio').wait_for()
+            page.wait_for_function('document.querySelector("#mock-material audio")?.readyState >= 1')
+            assert page.locator('#mock-material audio').evaluate('(audio)=>audio.error===null')
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
             assert not errors
             context.close()

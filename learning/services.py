@@ -32,6 +32,8 @@ def analyze(provider, model, question, answer):
         revised_answer 给出示例学习安排，next_step 给出一步可完成的行动。
         不改写本地正确率、不把六题结果推断为官方分数、CEFR 或完整水平认证。
         score 仅为本次建议的内部参考指标，不能声称为考试成绩或客观诊断正确率。'''
+    if question.get('mock'):
+        system+='\n本次是缩减题量的分项模考。只按该文字题给 0–100 学习参考分；不得换算 IELTS band、CET 710 分总分或官方成绩，不评价文字口语的发音与真实流利度。'
     if len((system + user_input + json.dumps(FEEDBACK_SCHEMA)).encode('utf-8')) > 20000:
         raise ValueError('Input exceeds learning cost bound')
     # Reuse host SDK connection pool, with explicit timeout and zero automatic retries.

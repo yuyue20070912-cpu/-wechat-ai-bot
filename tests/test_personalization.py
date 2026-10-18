@@ -8,7 +8,7 @@ from werkzeug.security import generate_password_hash
 
 import bot
 from learning import accounting, reviews
-from learning.diagnostics import TESTS, TEST_VERSION
+from learning.diagnostics import TESTS, TEST_VERSION, GROUPS
 from learning.questions import QUESTIONS
 from learning_fakes import FEEDBACK
 
@@ -30,8 +30,9 @@ def post(c, path, body=None):
 
 
 def diagnose(c, exam='ielts', correct=True, request_id=None):
-    answers = {q['id']: q['correct_index'] if correct else (q['correct_index']+1)%3 for q in TESTS[exam]}
-    return post(c, 'diagnostics/' + exam, dict(request_id=str(request_id or uuid4()), version=TEST_VERSION, answers=answers))
+    version=c.get('/api/learning/diagnostics/'+exam).json['test']['version']
+    answers = {q['id']: q['correct_index'] if correct else (q['correct_index']+1)%3 for q in GROUPS[version][exam]}
+    return post(c, 'diagnostics/' + exam, dict(request_id=str(request_id or uuid4()), version=version, answers=answers))
 
 
 def plan(c, exam='ielts'):
@@ -87,8 +88,9 @@ def test_exam_specific_diagnostic_no_paid_calls(user, ai, exam):
 
 def test_diagnostic_replay_and_concurrency(user):
     key = uuid4()
+    payload=dict(request_id=str(key),version=TEST_VERSION,answers={q['id']:(q['correct_index']+1)%3 for q in TESTS['ielts']})
     with ThreadPoolExecutor(max_workers=4) as pool:
-        results = list(pool.map(lambda _: diagnose(client(user), correct=False, request_id=key), range(4)))
+        results = list(pool.map(lambda _: post(client(user),'diagnostics/ielts',payload), range(4)))
     assert all(r.status_code == 200 for r in results)
     assert sum(not r.json['replayed'] for r in results) == 1
     c = client(user)
@@ -340,7 +342,7 @@ def test_insights_use_all_attempts_and_separate_score_series(user):
                 VALUES (%s,%s,'ielts-writing-1-v1','ielts','writing','answer','completed',CURRENT_DATE,'test',%s,NOW()-(%s * INTERVAL '1 day'))''',
                 (user,str(uuid4()),json.dumps(dict(FEEDBACK,score=50+i)),24-i))
     result=c.get('/api/learning/overview/ielts').json['overview']
-    assert result['diagnostic_accuracy']==100 and result['diagnostic_delta']==100
+    assert result['diagnostic_accuracy']==100 and result['diagnostic_delta'] is None  # Different screening groups are not directly comparable
     assert result['study_days']==25
     assert result['practice_scores'][0]['count']==25 and result['practice_scores'][0]['change']==24
     assert len(result['active_dates'])==25

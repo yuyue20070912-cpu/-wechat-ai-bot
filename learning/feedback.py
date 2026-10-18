@@ -27,6 +27,9 @@ def execute(connection, rate_limit, ai_provider, model, question, answer, reques
         if question.get('diagnostic'):
             feedback['kind'] = 'diagnostic_interpretation'
             feedback['score_label'] = 'AI 解读参考指标，不是诊断正确率或官方成绩'
+        if question.get('mock'):
+            feedback['kind']='mock_subjective'
+            feedback['score_label']='文字分项模考 AI 学习参考分，不是官方成绩'
         if not accounting.finish(connection, session['user_id'], request_id, feedback, tokens):
             raise RuntimeError('Reservation expired')
         reserved = False

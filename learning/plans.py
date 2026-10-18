@@ -3,6 +3,7 @@ from psycopg.types.json import Jsonb
 
 from .accounting import PracticeError
 from .questions import SKILLS
+from .preferences import local_day
 
 
 def context(conn, user_id, exam):
@@ -13,7 +14,7 @@ def context(conn, user_id, exam):
         WHERE user_id=%s AND exam_type=%s ORDER BY created_at DESC,request_id DESC LIMIT 1''', (user_id, exam)).fetchone()
     averages = conn.execute('''SELECT skill,AVG((feedback->>'score')::numeric) FROM (
         SELECT skill,feedback FROM learning_attempts WHERE user_id=%s AND exam_type=%s AND status='completed'
-        AND question_id NOT LIKE 'diagnostic-%%' ORDER BY created_at DESC LIMIT 30) recent
+        AND question_id NOT LIKE 'diagnostic-%%' AND question_id NOT LIKE 'mock-%%' ORDER BY created_at DESC LIMIT 30) recent
         GROUP BY skill ORDER BY AVG((feedback->>'score')::numeric),skill''', (user_id, exam)).fetchall()
     due = conn.execute('''SELECT COUNT(*) FROM learning_review_items
         WHERE user_id=%s AND exam_type=%s AND due_at<=NOW()''', (user_id, exam)).fetchone()[0]
@@ -26,13 +27,13 @@ def context(conn, user_id, exam):
     high_goal = profile['target_score'] is not None and profile['target_score'] >= (7 if exam == 'ielts' else 550)
     return dict(profile=profile, diagnostic_id=str(diag[0]) if diag else None,
                 weak_skills=weak, ranked_skills=ranked, due_reviews=due, high_goal=high_goal,
-                algorithm='daily-v1', timezone='UTC')
+                algorithm='daily-v2', timezone=local_day(conn,user_id)[1])
 
 
 def build_tasks(inputs):
     tasks = []
     if not inputs['diagnostic_id']:
-        tasks.append(dict(id='diagnostic', title='完成六题文字入门诊断', kind='diagnostic', minutes=6,
+        tasks.append(dict(id='diagnostic', title='完成六题轮换入门筛查', kind='diagnostic', minutes=6,
                           reason='用客观题结果补充自评，找到下一步。'))
     if inputs['due_reviews']:
         tasks.append(dict(id='review', title=f'复习到期错题（本次最多 {min(5, inputs["due_reviews"])} 道）',
@@ -56,16 +57,17 @@ def serialize(conn, user_id, exam, day):
         WHERE user_id=%s AND exam_type=%s AND plan_date=%s ORDER BY task_id''', (user_id, exam, day)).fetchall()
     return dict(exam_type=exam, date=day.isoformat(), inputs=plan[0], tasks=[
         dict(**row[1], completed=row[2], version=row[3], completed_at=row[4].isoformat() if row[4] else None) for row in rows],
-        notice='每日计划按 UTC 日期保存；当天内容固定，目标或诊断更新将用于下一天。任务完成为自报状态，不等同考试成绩。')
+        notice=f'本计划按 {plan[0].get("timezone","UTC")} 日期保存；当天内容固定，更改时区不覆盖同日期旧任务。目标或筛查更新用于下一天。完成为自报状态。')
 
 
 def today(connection, user_id, exam):
     with connection() as conn:
-        day = conn.execute("SELECT (NOW() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        day, timezone = local_day(conn,user_id)
         existing = conn.execute('''SELECT 1 FROM learning_plans WHERE user_id=%s AND exam_type=%s AND plan_date=%s''',
                                 (user_id, exam, day)).fetchone()
         if not existing:
             inputs = context(conn, user_id, exam)
+            inputs['timezone'] = timezone
             inserted = conn.execute('''INSERT INTO learning_plans(user_id,exam_type,plan_date,inputs)
                 VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING RETURNING plan_date''', (user_id, exam, day, Jsonb(inputs))).fetchone()
             if inserted:
@@ -77,7 +79,7 @@ def today(connection, user_id, exam):
 
 def get_today(connection, user_id, exam):
     with connection() as conn:
-        day = conn.execute("SELECT (NOW() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        day, timezone = local_day(conn,user_id)
         if not conn.execute('SELECT 1 FROM learning_plans WHERE user_id=%s AND exam_type=%s AND plan_date=%s',
                             (user_id, exam, day)).fetchone():
             return None

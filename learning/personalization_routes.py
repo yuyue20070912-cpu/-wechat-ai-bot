@@ -6,8 +6,9 @@ from secrets import compare_digest
 from uuid import UUID, NAMESPACE_URL, uuid5
 
 from flask import current_app, jsonify, request, session
+from werkzeug.exceptions import HTTPException
 
-from . import accounting, config, diagnostic_repository, diagnostics, insights, plans, reviews
+from . import accounting, config, diagnostic_repository, diagnostics, insights, plans, preferences, reviews
 from .catalog import EXAMS
 
 
@@ -18,7 +19,7 @@ def register_personalization(bp, connection, require_login, rate_limit, ai_provi
         def wrapped(*args, **kwargs):
             if 'exam' in kwargs and kwargs['exam'] not in {e['id'] for e in EXAMS}:
                 return jsonify(error='不支持的考试类型'), 404
-            if request.method != 'GET':
+            if request.method not in ('GET','HEAD'):
                 token = request.headers.get('X-Learning-CSRF', '')
                 if (request.headers.get('Sec-Fetch-Site') == 'cross-site' or not token
                         or not compare_digest(token.encode(), session.get('learning_csrf', '').encode())):
@@ -29,6 +30,8 @@ def register_personalization(bp, connection, require_login, rate_limit, ai_provi
                 return jsonify(error=str(error)), error.status
             except (ValueError, TypeError, AttributeError):
                 return jsonify(error='提交格式错误，请检查选项、日期和请求编号'), 400
+            except HTTPException:
+                raise
             except Exception:
                 current_app.logger.warning('Learning personalization unavailable')
                 return jsonify(error='学习服务暂不可用，请稍后重试'), 503
@@ -47,7 +50,21 @@ def register_personalization(bp, connection, require_login, rate_limit, ai_provi
     @bp.get('/api/learning/diagnostics/<exam>')
     @checked
     def diagnostic_test(exam):
-        return jsonify(test=diagnostics.public_test(exam))
+        with connection() as conn:
+            index = diagnostic_repository.next_index(conn,session['user_id'],exam)
+        return jsonify(test=diagnostics.public_test(exam,index))
+
+    @bp.get('/api/learning/preferences')
+    @checked
+    def get_preferences():
+        with connection() as conn:
+            return jsonify(preferences=preferences.get(conn,session['user_id']))
+
+    @bp.put('/api/learning/preferences')
+    @checked
+    def save_preferences():
+        data=payload(['timezone','expected_version']);limit('preferences')
+        return jsonify(preferences=preferences.save(connection,session['user_id'],data['timezone'],data['expected_version']))
 
     @bp.post('/api/learning/diagnostics/<exam>')
     @checked
@@ -137,7 +154,7 @@ def register_personalization(bp, connection, require_login, rate_limit, ai_provi
         limit('review-save')
         # Ownership and completed status checked before any snapshot is imported.
         attempts = accounting.history(connection, session['user_id'], request_id)
-        if not attempts or attempts[0]['status'] != 'completed' or attempts[0]['question_id'].startswith('diagnostic-'):
+        if not attempts or attempts[0]['status'] != 'completed' or attempts[0]['purpose']!='practice':
             raise accounting.PracticeError('可收藏的练习记录不存在', 404)
         with connection() as conn:
             inserted = reviews.capture_attempt(conn, session['user_id'], request_id, manual=True)
@@ -157,3 +174,6 @@ def register_personalization(bp, connection, require_login, rate_limit, ai_provi
         limit('review-response', 120)
         return jsonify(reviews.respond(connection, session['user_id'], data['item_key'], request_id,
                        data['expected_version'], data['answer'].strip(), data['self_rating']))
+
+    from .mock_routes import register_mocks
+    register_mocks(bp,connection,checked,payload,limit,rate_limit,ai_provider,model)

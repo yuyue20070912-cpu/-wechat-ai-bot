@@ -106,3 +106,28 @@ def test_phase_three_failure_rolls_back_only_new_work(isolated_schema,monkeypatc
     with isolated_schema() as conn:
         assert conn.execute("SELECT to_regclass('learning_diagnostics')").fetchone()[0] is None
         assert conn.execute('SELECT target_score FROM learning_profiles').fetchone()[0]==7
+
+
+def test_phase_four_upgrade_and_rollback_preserve_old_tasks(isolated_schema,monkeypatch):
+    with isolated_schema() as conn:
+        conn.execute('CREATE TABLE users(id BIGINT PRIMARY KEY)')
+        conn.execute('CREATE TABLE subscriptions(id BIGINT PRIMARY KEY)')
+        conn.execute('INSERT INTO users VALUES(1)')
+        for path in sorted(Path('learning/migrations').glob('00[123]_*.sql')):
+            conn.execute(path.read_text())
+        conn.execute("INSERT INTO learning_plans(user_id,exam_type,plan_date,inputs) VALUES(1,'ielts',CURRENT_DATE,'{}')")
+        conn.execute("INSERT INTO learning_tasks(user_id,exam_type,plan_date,task_id,content,completed,completed_at) VALUES(1,'ielts',CURRENT_DATE,'saved','{}',TRUE,NOW())")
+    original=Path.read_text
+    def corrupt(path,*args,**kwargs):
+        text=original(path,*args,**kwargs)
+        return text+'\nSELECT * FROM absent_phase_four_table;' if path.name=='004_learning_mock_exams.sql' else text
+    with monkeypatch.context() as patch:
+        patch.setattr(Path,'read_text',corrupt)
+        with pytest.raises(psycopg.errors.UndefinedTable):migrate(isolated_schema)
+    with isolated_schema() as conn:
+        assert conn.execute("SELECT to_regclass('learning_mock_sessions')").fetchone()[0] is None
+        assert conn.execute('SELECT completed FROM learning_tasks').fetchone()[0] is True
+    migrate(isolated_schema);migrate(isolated_schema)
+    with isolated_schema() as conn:
+        assert conn.execute('SELECT completed FROM learning_tasks').fetchone()[0] is True
+        assert conn.execute('SELECT COUNT(*) FROM learning_mock_sessions').fetchone()[0]==0

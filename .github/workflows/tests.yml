@@ -17,3 +17,4 @@ jobs:
       - run: node tests/test_stream.js
       - run: node --check static/learning-practice.js
       - run: node --check static/learning-hub.js
+      - run: node --check static/learning-mocks.js

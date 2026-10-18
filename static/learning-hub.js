@@ -3,7 +3,7 @@
   'use strict';
   const el = id => document.getElementById(id);
   const skills = {speaking:'口语文字',writing:'写作',listening:'听力文本',reading:'阅读',vocabulary:'词汇',translation:'翻译'};
-  let exam = null, csrf = '', generation = 0, busy = false, test = null, report = null, offset = 0, pendingDiagnostic = null;
+  let exam = null, csrf = '', generation = 0, busy = false, test = null, report = null, offset = 0, pendingDiagnostic = null, preferences = null;
   const reviewRequests = new Map();
   const text = (tag, value, root) => {const node=document.createElement(tag);node.textContent=value;root.append(node);return node;};
   const uuid = () => {
@@ -21,7 +21,7 @@
   }
   function lock(value) {
     busy=value;document.body.dataset.hubBusy=String(value);
-    document.querySelectorAll('.exam').forEach(button=>{button.disabled=value||document.body.dataset.practiceBusy==='true';});
+    document.querySelectorAll('.exam').forEach(button=>{button.disabled=value||document.body.dataset.practiceBusy==='true'||document.body.dataset.mockBusy==='true';});
     el('learning-hub').setAttribute('aria-busy',String(value));
   }
   async function action(work, message) {
@@ -32,7 +32,7 @@
     finally{lock(false);}
   }
   function renderTest(value) {
-    test=value;pendingDiagnostic=null;
+    test=value;pendingDiagnostic=null;el('screening-group').textContent=`入门筛查 · 题组 ${value.group}/${value.groups} · 非完整水平测试`;
     const root=el('diagnostic-questions');root.replaceChildren();
     value.questions.forEach(q=>{
       const group=document.createElement('fieldset');text('legend',`${skills[q.skill]} · ${q.prompt}`,group);
@@ -51,7 +51,7 @@
     report=data.latest_diagnostic;
     const summary=el('diagnostic-summary');summary.replaceChildren();
     if(report){
-      text('p',`${report.result.level} · ${report.result.correct}/${report.result.total} 题正确`,summary);
+      text('p',`本题组观察：${report.result.level} · ${report.result.correct}/${report.result.total} 题正确`,summary);
       text('p','待巩固：'+(report.result.weak_skills.map(s=>skills[s]).join('、')||'继续用专项练习验证'),summary);
       const details=document.createElement('details');text('summary','查看本地判分与解析',details);
       report.result.details.forEach(item=>text('p',`${skills[item.skill]}：${item.correct?'正确':'需复习'}。${item.explanation}`,details));summary.append(details);
@@ -71,14 +71,14 @@
     data.practice_scores.forEach(s=>text('p',`${skills[s.skill]} · ${s.count} 次 · 均分 ${s.average}/100 · ${s.change===null?'样本不足，暂不计算变化':`首次到最近 ${s.change>0?'+':''}${s.change} 参考分`}`,practice));
     const calendar=el('activity-days');calendar.replaceChildren();
     for(let i=27;i>=0;i--){
-      const date=new Date();date.setUTCDate(date.getUTCDate()-i);const day=date.toISOString().slice(0,10);
+      const date=new Date(data.today+'T12:00:00Z');date.setUTCDate(date.getUTCDate()-i);const day=date.toISOString().slice(0,10);
       const cell=text('span',day.slice(8),calendar), active=data.active_dates.includes(day);
       cell.className=active?'active':'';cell.title=day+(active?' · 有学习活动':' · 暂无学习活动');cell.setAttribute('aria-label',cell.title);
     }
   }
   function renderPlan(plan) {
     const root=el('daily-tasks');root.replaceChildren();
-    el('plan-date').textContent=plan?`${plan.date} · UTC · 今天的安排`:'今日尚无计划。可先完成诊断，再生成。';
+    el('plan-date').textContent=plan?`${plan.date} · ${plan.inputs.timezone} · 今天的安排`:'今日尚无计划。可先完成诊断，再生成。';
     if(!plan)return;
     text('p',plan.notice,root).className='practice-note';
     plan.tasks.forEach(task=>{
@@ -146,12 +146,13 @@
   async function load(rebuild=false) {
     if(!exam)return;
     const version=++generation, id=exam.id;
-    const paths=[`overview/${id}`,`plans/${id}`,`reviews/${id}?offset=${offset}`];
+    const paths=[`overview/${id}`,`plans/${id}`,`reviews/${id}?offset=${offset}`,'preferences'];
     if(rebuild)paths.push(`diagnostics/${id}`);
     const results=await Promise.all(paths.map(path=>api(path)));
     if(version!==generation)return;
     renderOverview(results[0].overview);renderPlan(results[1].plan);renderReviews(results[2]);
-    if(rebuild){renderTest(results[3].test);el('diagnostic-details').open=false;}
+    preferences=results[3].preferences;el('learning-timezone').value=preferences.timezone;
+    if(rebuild){renderTest(results[4].test);el('diagnostic-details').open=false;}
     const ai=el('diagnostic-ai');ai.disabled=true;el('diagnostic-ai-result').replaceChildren();
     if(report){
       const result=await api('diagnostic-results/'+report.request_id);
@@ -186,7 +187,9 @@
     action(async()=>{
       await api('diagnostics/'+exam.id,'POST',{...content,request_id:pendingDiagnostic.request_id});
       pendingDiagnostic=null;event.target.reset();el('diagnostic-details').open=false;
+      renderTest((await api('diagnostics/'+exam.id)).test);
     },'诊断已保存，错题已加入复习；本次未调用付费 AI。');
   };
+  el('timezone-form').onsubmit=event=>{event.preventDefault();if(preferences)action(()=>api('preferences','PUT',{timezone:el('learning-timezone').value.trim(),expected_version:preferences.version}),'时区已保存，今日计划按新时区恢复。');};
   el('diagnostic-ai').onclick=()=>{if(report)action(()=>api(`diagnostic-results/${report.request_id}/ai`,'POST',{}),'AI 解读已保存，可随时回来查看。');};
 })();

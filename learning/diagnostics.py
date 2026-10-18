@@ -2,7 +2,7 @@
 from .questions import SKILLS
 
 TEST_VERSION = 'entry-v1'
-NOTICE = '六道原创文字入门题，仅供学习定位；不等同官方成绩、完整水平认证、口语发音或听辨测试。'
+NOTICE = '六题轮换入门筛查，只观察本题组基础，不能代表完整英语水平；不是官方成绩、CEFR 认证、发音或听辨测试。'
 
 
 def question(key, skill, prompt, options, correct, explanation):
@@ -53,13 +53,49 @@ TESTS = {
 }
 
 
-def public_test(exam):
-    return dict(version=TEST_VERSION, notice=NOTICE, questions=[
-        {k: v for k, v in q.items() if k not in ('correct_index', 'explanation')} for q in TESTS[exam]])
+def alternate_group(form):
+    groups={}
+    for exam in TESTS:
+        easy=exam=='cet4'
+        vocab = ({'ielts':('plausible','reasonable'), 'cet4':('borrow','use temporarily'), 'cet6':('substantiate','support with evidence')}
+                 if form=='b' else {'ielts':('allocate','assign for a purpose'), 'cet4':('arrive','reach a place'), 'cet6':('inhibit','hold back or prevent')})[exam]
+        reading=('The library extended evening hours after a student survey. Weekend hours stayed the same.' if form=='b'
+                 else 'A town tested its river after heavy rain. The water was unsafe that week, but no earlier measurements were available.')
+        read_prompt=reading+(' Which statement is supported?' if form=='b' else ' What can we conclude?')
+        read_options=(['Evening hours increased; weekend hours did not.','All opening hours doubled.','Students never use the library.'] if form=='b'
+                      else ['The river has always been unsafe.','Water was unsafe during the measured week.','Rain always makes every river safe.'])
+        listen=('文字预备：The appointment was moved from 9 am to 11 am. Please go to Room 302, not Room 203. Which arrangement is correct?' if form=='b'
+                else '文字预备：The course starts on May 12, but payment is due on May 5. What is the payment deadline?')
+        groups[exam]=[
+            question(exam+'-v-'+form,'vocabulary',f'Choose the meaning of "{vocab[0]}" in context.',[vocab[1],'the exact opposite','an unrelated idea'],0,f'{vocab[0]} 在这里意为 {vocab[1]}。'),
+            question(exam+'-r-'+form,'reading',read_prompt,read_options,0 if form=='b' else 1,'只使用材料支持的结论；没有早期测量，不能推断长期状态。' if form=='c' else '延长的是晚间时间，周末没有变化。'),
+            question(exam+'-l-'+form,'listening',listen,['9 am, Room 203','11 am, Room 302','11 am, Room 203'] if form=='b' else ['May 12','May 15','May 5'],1 if form=='b' else 2,'区分原安排与新安排，或开始日与付款截止日；这仅是文本理解。'),
+            question(exam+'-w-'+form,'writing','Choose the correct and coherent sentence.' if easy else 'Which sentence connects evidence to a cautious conclusion?',
+                ['He has lived here for two years.','He have live here for two years.','He living here since two years.'] if easy and form=='b'
+                else ['If it rains, we will stay inside.','If rain, we stays inside.','If raining we will staying.'] if easy
+                else ['The sample is small, so further research is needed.','One example proves everything forever.','Evidence never matters.'] if form=='b'
+                else ['Because only one class was observed, the result may not apply to all students.','All students are identical.','No observations are required.'],0,'注意时态、条件句或证据的适用范围，不把有限样本绝对化。'),
+            question(exam+'-s-'+form,'speaking','Choose a developed written reply to "How do you solve a difficult problem?"' if form=='b' else 'Choose a developed written reply to "Why is teamwork useful?"',
+                ['Problem yes.','I break it into smaller steps and check one step at a time.' if form=='b' else 'Different people notice different details; for example, a partner found an error I missed.','Always all.'],1,'完整文字回答给出方法或具体理由；不能据此评判真实口语表现。'),
+            question(exam+'-t-'+form,'translation','选择保留原意的译文：“我们越认真准备，就越有信心。”' if form=='b' else '选择保留原意的译文：“在作出决定之前，我们需要更多证据。”',
+                ['Preparation removes every problem.','We never need preparation.','The more carefully we prepare, the more confident we become.'] if form=='b'
+                else ['We need more evidence before making a decision.','We decide before looking at any evidence.','Evidence is never needed.'],2 if form=='b' else 0,'保留比较关系或时间先后关系；IELTS 翻译与 CET 口语属于拓展观察。'),
+        ]
+    return groups
 
 
-def score(exam, answers):
-    items = TESTS[exam]
+GROUPS={TEST_VERSION:TESTS,'entry-v1-b':alternate_group('b'),'entry-v1-c':alternate_group('c')}
+GROUP_VERSIONS=tuple(GROUPS)
+
+
+def public_test(exam,index=0):
+    version=GROUP_VERSIONS[index%len(GROUP_VERSIONS)]
+    return dict(version=version,group=index%3+1,groups=3,notice=NOTICE,questions=[
+        {k: v for k, v in q.items() if k not in ('correct_index', 'explanation')} for q in GROUPS[version][exam]])
+
+
+def score(exam, answers, version=TEST_VERSION):
+    items = GROUPS[version][exam]
     if not isinstance(answers, dict) or set(answers) != {q['id'] for q in items}:
         raise ValueError('请完成本场诊断的全部六道题')
     details = []
@@ -72,6 +108,7 @@ def score(exam, answers):
             selected=value, reference=q['options'][q['correct_index']], explanation=q['explanation']))
     correct = sum(item['correct'] for item in details)
     return dict(correct=correct, total=len(items), accuracy=round(correct / len(items) * 100, 1),
+        scope='entry_screening',group=version,level_is_proficiency=False,
         level='基础起步' if correct <= 2 else '稳步提升' if correct <= 4 else '进阶巩固',
         skill_scores={item['skill']: 100 if item['correct'] else 0 for item in details},
         weak_skills=[item['skill'] for item in details if not item['correct']],
