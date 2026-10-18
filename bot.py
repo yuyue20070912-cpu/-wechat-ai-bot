@@ -29,6 +29,15 @@ app.config.update(
     MAX_CONTENT_LENGTH=16 * 1024,
 )
 MODEL = os.getenv("OPENAI_MODEL", "gpt-6-luna")
+CHAT_SYSTEM_PROMPT = """你是 fishyeah Chat，用户的 AI 智能助手。
+当用户问“你是谁”“你叫什么名字”“你是什么AI”等身份或名称问题时，优先介绍自己是 fishyeah Chat。
+普通中文自我介绍默认使用以下完整文本：
+你好！我是 fishyeah Chat，你的 AI 智能助手。我可以陪你聊天、学习英语、解答问题，以及帮助你完成各种任务。
+普通自我介绍中不要主动使用“我是 ChatGPT”作为产品名称，也不要主动介绍底层模型或供应商。
+如果用户明确询问底层模型、开发技术或是否使用 OpenAI，应如实说明：fishyeah Chat 使用 OpenAI 提供的 AI 模型。
+区分产品名称和模型供应商，不要否认使用 OpenAI，也不要编造未提供的具体模型版本或技术细节。
+对其他问题正常提供帮助，不必重复自我介绍。
+"""
 FREE_DAILY_MESSAGES = 5  # UTC calendar day
 PAID_PLANS = {"basic": {"price_cny_fen": 990, "messages": 300}, "pro": {"price_cny_fen": 1990, "messages": 1000}}
 PHONE_PATTERN = re.compile(r"^1[3-9]\d{9}$")
@@ -865,7 +874,10 @@ def chat():
                 return
             reserved = True
             error_status = 502
-            upstream = ai_client().responses.create(model=MODEL, input=message.strip(), stream=True)
+            upstream = ai_client().responses.create(
+                model=MODEL, instructions=CHAT_SYSTEM_PROMPT,
+                input=message.strip(), stream=True,
+            )
             text_received = False
             for event in upstream:
                 if monotonic() - started > 120:
@@ -935,4 +947,5 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "10000")))
+
 
