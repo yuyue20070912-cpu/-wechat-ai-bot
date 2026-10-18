@@ -17,6 +17,7 @@ async function readChatStream(body, onEvent) {
       let end;
       while ((end = buffer.indexOf('\n')) >= 0) {
         consume(buffer.slice(0, end)); buffer = buffer.slice(end + 1);
+        if (done) return;
       }
       if (chunk.done) break;
     }

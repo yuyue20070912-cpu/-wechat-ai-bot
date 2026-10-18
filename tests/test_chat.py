@@ -3,7 +3,6 @@ from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace as NS
 from uuid import uuid4
 
-import psycopg
 import pytest
 import bot
 
@@ -190,13 +189,44 @@ def test_login_membership_payment_regression(monkeypatch,user):
 
 def test_endpoint_refund_outage_recovers(monkeypatch,user):
     install(monkeypatch,[RuntimeError('upstream failed')])
-    real=bot.settle_chat
     with monkeypatch.context() as m:
         m.setattr(bot,'settle_chat',lambda *args: (_ for _ in ()).throw(RuntimeError('database down')))
         response=post(client(user))
-        assert frames(response)[-1]['type']=='error' 
+        assert frames(response)[-1]['type']=='error'
     assert used(user)==1
     with bot.db_connection() as conn:
         conn.execute("UPDATE chat_requests SET created_at=NOW()-INTERVAL '11 minutes'")
     bot.recover_stale_chats()
+    assert used(user)==0
+
+
+def test_completed_event_does_not_wait_for_upstream_eof(monkeypatch,user):
+    stream=install(monkeypatch,[NS(type='response.output_text.delta',delta='done'),NS(type='response.completed'),RuntimeError('must not read past completion')])
+    assert frames(post(client(user)))[-1]['type']=='done'
+    assert used(user)==1 and stream.closed
+
+
+def test_recovery_batches_paid_and_free_without_double_refund(user):
+    key=str(uuid4());bot.reserve_chat(user,key)
+    with bot.db_connection() as conn:
+        sub=conn.execute("INSERT INTO subscriptions(user_id,plan,starts_at,ends_at,message_limit,payment_reference) VALUES (%s,'basic',NOW()-INTERVAL '1 day',NOW()+INTERVAL '1 day',300,'batch-paid') RETURNING id",(user,)).fetchone()[0]
+    for _ in range(104):bot.reserve_chat(user,str(uuid4()))
+    with bot.db_connection() as conn:
+        conn.execute("UPDATE chat_requests SET created_at=NOW()-INTERVAL '11 minutes'")
+    bot.recover_stale_chats()
+    with bot.db_connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM chat_requests WHERE status='pending'").fetchone()[0]==5
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        list(pool.map(lambda _:bot.recover_stale_chats(),range(3)))
+    bot.recover_stale_chats()
+    assert used(user)==0
+    with bot.db_connection() as conn:
+        assert conn.execute('SELECT used FROM subscriptions WHERE id=%s',(sub,)).fetchone()[0]==0
+        assert conn.execute("SELECT COUNT(*) FROM chat_requests WHERE status='pending'").fetchone()[0]==0
+
+
+def test_invalid_chat_json_does_not_charge(user):
+    c=client(user)
+    assert c.post('/chat',json=['invalid']).status_code==400
+    assert c.post('/chat',json={'message':'ok','stream':True,'request_id':'invalid'}).status_code==400
     assert used(user)==0

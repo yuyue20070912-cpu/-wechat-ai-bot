@@ -16,3 +16,9 @@ test('truncated response is not success',async()=>{
 test('server error is surfaced',async()=>{
  await assert.rejects(readChatStream(body('{"type":"error","error":"额度不足"}\n'),()=>{}),/额度不足/);
 });
+test('done frame finishes immediately even when HTTP connection stays open',async()=>{
+ let cancelled=false;
+ const source=new ReadableStream({start(c){c.enqueue(new TextEncoder().encode('{"type":"done","remaining":4}\n'));},cancel(){cancelled=true;}});
+ await readChatStream(source,()=>{});
+ assert.equal(cancelled,true);
+});

@@ -156,13 +156,30 @@ def _create_schema():
 
 
 def recover_stale_chats():
-    """Recover committed reservations after a worker crash; no external scheduler needed."""
+    """Bound recovery work and refund a batch in one atomic database round trip."""
     with db_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT user_id,request_id FROM chat_requests WHERE status='pending' AND created_at < NOW()-INTERVAL '10 minutes'")
-            stale = cur.fetchall()
-    for user_id, request_id in stale:
-        settle_chat(user_id, request_id, False)
+            cur.execute("""
+                WITH expired AS (
+                    UPDATE chat_requests SET status='refunded'
+                    WHERE (user_id,request_id) IN (
+                        SELECT user_id,request_id FROM chat_requests
+                        WHERE status='pending' AND created_at < NOW()-INTERVAL '10 minutes'
+                        ORDER BY created_at LIMIT 100 FOR UPDATE SKIP LOCKED
+                    )
+                    RETURNING user_id,usage_day,subscription_id
+                ), free_refunds AS (
+                    UPDATE daily_message_usage d SET used=GREATEST(0,d.used-r.amount)
+                    FROM (SELECT user_id,usage_day,COUNT(*) AS amount FROM expired
+                          WHERE subscription_id IS NULL GROUP BY user_id,usage_day) r
+                    WHERE d.user_id=r.user_id AND d.usage_day=r.usage_day
+                    RETURNING d.user_id
+                )
+                UPDATE subscriptions s SET used=GREATEST(0,s.used-r.amount)
+                FROM (SELECT subscription_id,COUNT(*) AS amount FROM expired
+                      WHERE subscription_id IS NOT NULL GROUP BY subscription_id) r
+                WHERE s.id=r.subscription_id
+            """)
 
 
 def reserve_chat(user_id, request_id):
@@ -813,6 +830,8 @@ def logout():
 @require_login
 def chat():
     data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify(error="无效消息格式"), 400
     message = data.get("message")
     if not isinstance(message, str) or not message.strip() or len(message) > 4000:
         return jsonify(error="请输入不超过4000字的消息"), 400
@@ -859,6 +878,7 @@ def chat():
                         yield {"type": "delta", "text": event.delta}
                 elif event.type == "response.completed":
                     completed = True
+                    break
                 elif event.type in ("response.failed", "response.incomplete", "error"):
                     raise RuntimeError("Upstream response did not complete")
             if not completed or not text_received:
@@ -879,7 +899,10 @@ def chat():
         finally:
             try:
                 if upstream is not None:
-                    upstream.close()
+                    try:
+                        upstream.close()
+                    except Exception:
+                        app.logger.exception("Upstream stream cleanup failed")
             finally:
                 if reserved:
                     try:
