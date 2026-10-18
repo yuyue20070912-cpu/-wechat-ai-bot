@@ -1,10 +1,9 @@
-import os
 from secrets import compare_digest
 from uuid import UUID
 
 from flask import current_app, jsonify, request, session
 
-from . import accounting, config, services
+from . import accounting, config
 from .questions import QUESTIONS, SKILLS, public_question
 
 
@@ -76,35 +75,5 @@ def register_training(bp, connection, require_login, rate_limit, ai_provider, mo
             request_id = str(UUID(data['request_id']))
         except (ValueError, TypeError, AttributeError):
             return jsonify(error='请求编号格式错误'), 400
-        if not config.enabled():
-            return jsonify(error='AI 练习暂未开放，仍可浏览文字题目'), 503
-        reserved = False
-        try:
-            limits = config.daily_limits()
-            if not rate_limit('learning:ai', str(session['user_id']), 12, minutes=1):
-                return jsonify(error='提交过于频繁，请稍后重试'), 429
-            selected_model = os.getenv('LEARNING_MODEL') or model()
-            feedback = accounting.reserve(connection, session['user_id'], request_id,
-                question, answer.strip(), selected_model, limits, free_limit())
-            if feedback is not None:
-                return jsonify(request_id=request_id, feedback=feedback, replayed=True)
-            reserved = True
-            feedback, tokens = services.analyze(ai_provider, selected_model, question, answer.strip())
-            feedback.update(reference_answer=question['reference'],
-                            score_label='本题练习参考分，非官方成绩', text_only=True)
-            if not accounting.finish(connection, session['user_id'], request_id, feedback, tokens):
-                raise RuntimeError('Reservation expired')
-            reserved = False
-            return jsonify(request_id=request_id, feedback=feedback, replayed=False)
-        except accounting.PracticeError as error:
-            return jsonify(error=str(error)), error.status
-        except Exception:
-            # Avoid logging learner answers, provider responses or credentials.
-            current_app.logger.warning('Learning feedback unavailable')
-            return jsonify(error='AI 反馈暂不可用。请查看练习记录确认状态；未完成的分析将退还消息额度。'), 502 if reserved else 503
-        finally:
-            if reserved:
-                try:
-                    accounting.finish(connection, session['user_id'], request_id)
-                except Exception:
-                    current_app.logger.warning('Learning refund deferred to recovery')
+        from .feedback import execute
+        return execute(connection, rate_limit, ai_provider, model, question, answer, request_id)

@@ -66,3 +66,43 @@ def test_migration_lock_timeout_leaves_existing_data_intact(isolated_schema):
             migrate(isolated_schema)
     with isolated_schema() as conn:
         assert conn.execute('SELECT COUNT(*) FROM learning_attempts').fetchone()[0] == 0
+
+
+def test_upgrade_from_phase_two_preserves_attempt_and_personalization_data(isolated_schema):
+    with isolated_schema() as conn:
+        conn.execute('CREATE TABLE users(id BIGINT PRIMARY KEY)')
+        conn.execute('CREATE TABLE subscriptions(id BIGINT PRIMARY KEY)')
+        conn.execute('INSERT INTO users VALUES (1)')
+        for name in ('001_learning_profiles.sql','002_learning_training.sql'):
+            conn.execute((Path('learning/migrations')/name).read_text())
+        conn.execute("""INSERT INTO learning_attempts(user_id,request_id,question_id,exam_type,skill,answer,status,usage_day,model)
+            VALUES (1,%s,'ielts-writing-1-v1','ielts','writing','original answer','pending',CURRENT_DATE,'test')""",(str(uuid4()),))
+    migrate(isolated_schema)
+    with isolated_schema() as conn:
+        conn.execute("""INSERT INTO learning_plans(user_id,exam_type,plan_date,inputs) VALUES(1,'ielts',CURRENT_DATE,'{}')""")
+        conn.execute("""INSERT INTO learning_tasks(user_id,exam_type,plan_date,task_id,content,completed,completed_at)
+            VALUES(1,'ielts',CURRENT_DATE,'read','{}',TRUE,NOW())""")
+    migrate(isolated_schema)
+    with isolated_schema() as conn:
+        assert conn.execute('SELECT answer FROM learning_attempts').fetchone()[0]=='original answer'
+        assert conn.execute('SELECT completed FROM learning_tasks').fetchone()[0] is True
+
+
+def test_phase_three_failure_rolls_back_only_new_work(isolated_schema,monkeypatch):
+    with isolated_schema() as conn:
+        conn.execute('CREATE TABLE users(id BIGINT PRIMARY KEY)')
+        conn.execute('CREATE TABLE subscriptions(id BIGINT PRIMARY KEY)')
+        conn.execute('INSERT INTO users VALUES (1)')
+        for name in ('001_learning_profiles.sql','002_learning_training.sql'):
+            conn.execute((Path('learning/migrations')/name).read_text())
+        conn.execute("INSERT INTO learning_profiles(user_id,exam_type,target_score,current_level) VALUES(1,'ielts',7,'beginner')")
+    original=Path.read_text
+    def corrupt(path,*args,**kwargs):
+        result=original(path,*args,**kwargs)
+        return result+'\nSELECT * FROM missing_phase_three_table;' if path.name=='003_learning_personalization.sql' else result
+    monkeypatch.setattr(Path,'read_text',corrupt)
+    with pytest.raises(psycopg.errors.UndefinedTable):
+        migrate(isolated_schema)
+    with isolated_schema() as conn:
+        assert conn.execute("SELECT to_regclass('learning_diagnostics')").fetchone()[0] is None
+        assert conn.execute('SELECT target_score FROM learning_profiles').fetchone()[0]==7

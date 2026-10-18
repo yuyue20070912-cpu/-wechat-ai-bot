@@ -74,4 +74,6 @@ def create_blueprint(connection, require_login, rate_limit, ai_provider, model):
 
     from .training import register_training
     register_training(bp, connection, require_login, rate_limit, ai_provider, model)
+    from .personalization_routes import register_personalization
+    register_personalization(bp, connection, require_login, rate_limit, ai_provider, model)
     return bp

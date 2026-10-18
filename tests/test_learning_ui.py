@@ -9,6 +9,7 @@ import pytest
 from werkzeug.serving import make_server
 
 import bot
+from learning.diagnostics import TESTS
 
 
 @pytest.mark.parametrize('width,height,color', [(390, 844, 'light'), (1440, 1000, 'light'), (375, 812, 'dark')])
@@ -78,12 +79,40 @@ def test_learning_browser(user, ai, width, height, color, engine):
             assert len(ai.calls) == 1
             page.locator('.history > summary').click()
             playwright.expect(page.locator('#practice-history')).to_contain_text('已完成')
+            page.get_by_role('button',name='加入错题本',exact=True).click()
+            page.get_by_role('button',name='已加入错题本',exact=True).wait_for()
             page.get_by_label('选择训练').select_option('listening')
             page.locator('#question-title').filter(has_text='辨认变更').wait_for()
             assert not page.locator('#question-material').evaluate('(node) => node.open')
             page.locator('#material-label').click()
             assert page.locator('#material-text').is_visible()
             assert page.locator('audio').count() == 0
+            page.locator('#diagnostic-details > summary').click()
+            for q in TESTS['cet4']:
+                page.locator(f'input[name="diag-{q["id"]}"][value="{(q["correct_index"]+1)%3}"]').check()
+            page.locator('#diagnostic-submit').click()
+            page.get_by_text('诊断已保存，错题已加入复习；本次未调用付费 AI。',exact=True).wait_for()
+            playwright.expect(page.locator('#diagnostic-summary')).to_contain_text('0/6 题正确')
+            assert page.locator('#diagnostic-ai').is_disabled()
+            page.locator('#create-plan').click()
+            page.get_by_text('今日计划已保存。',exact=True).wait_for()
+            checkbox=page.locator('#daily-tasks input[type=checkbox]').first
+            task_name=checkbox.get_attribute('aria-label')
+            checkbox.check()
+            page.get_by_text('任务状态已保存，重新登录后仍可恢复。',exact=True).wait_for()
+            review_data=page.request.get(origin+'/api/learning/reviews/cet4').json()
+            item=next(item for item in review_data['items'] if item['source_type']=='diagnostic')
+            card=page.locator('.review-card').filter(has=page.locator('summary',has_text='客观错题')).first
+            # The list is sorted by due time/key, as returned by the API.
+            card.locator(':scope > summary').click()
+            card.get_by_label('本次复习答案').select_option(str(item['content']['options'].index(item['content']['reference'])))
+            card.get_by_role('button',name='提交复习答案').click()
+            page.get_by_text('复习已记录，下一次时间已安排。',exact=True).wait_for()
+            page.reload()
+            page.locator('[data-exam="cet4"]').click()
+            playwright.expect(page.get_by_role('checkbox',name=task_name,exact=True)).to_be_checked()
+            playwright.expect(page.locator('#diagnostic-summary')).to_contain_text('0/6 题正确')
+            assert len(ai.calls)==1
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
             assert not errors
             context.close()

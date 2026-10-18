@@ -36,11 +36,12 @@
   }
   function lock(value) {
     busy = value;
+    document.body.dataset.practiceBusy = String(value);
     el('practice-skill').disabled = value;
     el('next-question').disabled = value;
     el('practice-answer').disabled = value;
     el('analyze-answer').disabled = value || !state || !state.enabled || !questions.length;
-    document.querySelectorAll('.exam').forEach(button => {button.disabled = value;});
+    document.querySelectorAll('.exam').forEach(button => {button.disabled = value || document.body.dataset.hubBusy === 'true';});
     el('answer-form').setAttribute('aria-busy', String(value));
   }
   async function refresh() {
@@ -59,12 +60,24 @@
       const card = document.createElement('article'); card.className = 'history-item';
       card.dataset.requestId = attempt.request_id;
       const status = {pending: '分析中', completed: '已完成', refunded: '未完成，消息额度已退还'}[attempt.status];
-      text('p', `${attempt.exam_type.toUpperCase()} · ${state.skills[attempt.skill]} · ${status}`, card);
+      text('p', `${attempt.exam_type.toUpperCase()} · ${attempt.purpose === 'diagnostic' ? '诊断 AI 解读' : state.skills[attempt.skill]} · ${status}`, card);
       text('small', new Date(attempt.created_at).toLocaleString('zh-CN'), card);
       const details = document.createElement('details'); text('summary', '查看我的答案', details); text('p', attempt.answer, details); card.append(details);
       if (attempt.feedback) {
         const button = text('button', '查看反馈', card); button.type = 'button';
         button.onclick = () => { if (!busy) { renderFeedback(attempt.feedback); el('feedback-heading').focus(); } };
+        if (attempt.purpose !== 'diagnostic') {
+          const save = text('button', '加入错题本', card); save.type = 'button';
+          save.onclick = async () => {
+            save.disabled = true;
+            try {
+              await api('/api/learning/reviews/save', {method:'POST', headers:{'Content-Type':'application/json', 'X-Learning-CSRF':csrf},
+                body:JSON.stringify({request_id:attempt.request_id})});
+              save.textContent = '已加入错题本';
+              document.dispatchEvent(new CustomEvent('learning:data-changed'));
+            } catch (error) { save.textContent = error.message; save.disabled = false; }
+          };
+        }
       }
       history.append(card);
     });
@@ -111,6 +124,12 @@
     catch (error) { el('practice-status').textContent = error.message; }
   });
   el('practice-skill').onchange = loadQuestions;
+  document.addEventListener('learning:practice-skill', async event => {
+    if (busy || !exam || exam.id !== event.detail.exam_type) return;
+    el('practice-skill').value = event.detail.skill;
+    await loadQuestions();
+    el('practice-answer').focus();
+  });
   el('next-question').onclick = () => {
     if (busy || !questions.length) return;
     if (el('practice-answer').value.trim() && !confirm('换题会清除尚未提交的答案，继续吗？')) return;
@@ -147,6 +166,7 @@
     } finally {
       try { await refresh(); } catch (_) { /* Preserve the submitted answer and feedback. */ }
       lock(false);
+      document.dispatchEvent(new CustomEvent('learning:data-changed'));
     }
   });
   // Safari can restore DOM state from back/forward cache after an account change.

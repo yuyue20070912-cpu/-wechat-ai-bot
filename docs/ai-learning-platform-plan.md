@@ -54,4 +54,5 @@
 
 - [第一阶段](ai-learning-platform-phase-1.md)：学习中心、三类考试和独立档案。
 - [第二阶段](ai-learning-platform-phase-2.md)：六类文字训练、结构化 AI 反馈、共享消息额度和独立调用预算。语音独立开发。
+- [第三阶段](ai-learning-platform-phase-3.md)：三考试入门诊断、可选有预算的 AI 解读、每日任务、错题本、间隔复习与数据中心。
 - [迁移与回退方案](learning-rollout-safety.md)：显式迁移、事务与锁超时、隔离库演练、数据保留与故障恢复。

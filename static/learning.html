@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/static/learning.css">
   <script src="/static/learning.js" defer></script>
   <script src="/static/learning-practice.js" defer></script>
+  <script src="/static/learning-hub.js" defer></script>
 </head>
 <body>
   <aside class="sidebar">
@@ -29,6 +30,22 @@
         <button id="save" type="submit">保存学习档案 <span>↗</span></button><p id="save-status" role="status" aria-live="polite"></p>
       </form>
     </section>
+    <section id="learning-hub" hidden aria-labelledby="hub-heading">
+      <div class="section-title"><h2 id="hub-heading">让进步，看得见。</h2><button id="hub-refresh" type="button">刷新数据</button></div>
+      <p id="hub-status" role="status" aria-live="polite"></p>
+      <div id="learning-metrics" class="metrics"></div>
+      <p class="practice-note">正确率仅指最近一次六题客观诊断。AI 参考分、客观题与自报任务分开记录，不代表官方考试成绩。</p>
+      <div class="hub-grid">
+        <section class="hub-panel" aria-labelledby="diagnostic-heading"><p class="eyebrow">KNOW YOUR STARTING POINT</p><h3 id="diagnostic-heading">英语入门诊断</h3><p class="practice-note">每场考试六道原创文字题，即时本地判分。口语与听力题仅检查文字基础，不测发音或听辨能力。</p>
+          <div id="diagnostic-summary"></div>
+          <details id="diagnostic-details"><summary>开始 / 重做六题诊断</summary><form id="diagnostic-form"><div id="diagnostic-questions"></div><button type="submit" id="diagnostic-submit">提交诊断 · 不消耗 AI 额度</button></form></details>
+          <button id="diagnostic-ai" type="button" disabled>可选 AI 解读 · 默认关闭</button><p class="practice-note">仅在获准启用后可用；主动点击才调用 AI，成功消耗 1 条消息额度，并计入原有每日调用上限。每份诊断最多调用一次，失败也不会自动重试。</p><div id="diagnostic-ai-result" aria-live="polite"></div>
+        </section>
+        <section class="hub-panel" aria-labelledby="plan-heading"><p class="eyebrow">A PLAN FOR TODAY</p><h3 id="plan-heading">今日学习计划</h3><p class="practice-note">建议先保存考试目标并完成诊断。计划结合自评、诊断、AI 练习弱项与到期复习，在服务器保存当天快照。</p><button id="create-plan" type="button">生成 / 恢复今日计划</button><p id="plan-date"></p><div id="daily-tasks"></div></section>
+      </div>
+      <section class="hub-panel" aria-labelledby="review-heading"><div class="section-title"><h3 id="review-heading">智能错题本与间隔复习</h3><button id="review-sync" type="button">导入已有 AI 待巩固题</button></div><p class="practice-note">诊断错题自动保存；AI 练习低于 70 参考分自动加入，也可手动收藏。客观题自动判分，开放表达由你自评，不会为复习额外调用 AI。</p><p id="review-count"></p><div id="review-items"></div><div class="review-pagination"><button id="review-prev" type="button">上一页</button><button id="review-next" type="button">下一页</button></div></section>
+      <section class="hub-panel" aria-labelledby="trends-heading"><h3 id="trends-heading">能力观察 · 保留每一小步</h3><p id="trend-note" class="practice-note"></p><div id="diagnostic-trend"></div><div id="practice-trend"></div><h4>最近 28 天的学习足迹（UTC）</h4><div id="activity-days" class="activity-days"></div><p class="practice-note">学习天数来自诊断、已完成练习、复习或手动完成任务的 UTC 活动日；小样本变化仅供调整学习安排。</p></section>
+    </section>
     <section id="practice-section" class="practice" aria-labelledby="practice-heading" hidden>
       <div class="section-title"><h2 id="practice-heading">文字专项练习</h2><span>原创小题 · 专注每一次表达</span></div>
       <p class="practice-note">口语先练文字表达，听力先做文本理解。当前不录音、不播放音频，也不评价发音或听辨能力。</p>
@@ -49,7 +66,7 @@
       <section id="feedback" class="feedback" aria-labelledby="feedback-heading" hidden><h3 id="feedback-heading" tabindex="-1">AI 学习反馈</h3><div id="feedback-content"></div></section>
       <details class="history"><summary>最近的练习记录（最多 20 条）</summary><button id="refresh-practice" type="button">刷新状态与记录</button><div id="practice-history"></div></details>
     </section>
-    <section class="next"><span class="spark">✧</span><div><h2>每一次练习，都有下一步。</h2><p>文字专项练习与 AI 反馈已加入。语音、私人导师、学习进度与计时模考将在后续阶段推出。</p><span class="badge">持续完善</span></div></section>
+    <section class="next"><span class="spark">✧</span><div><h2>每一次练习，都有下一步。</h2><p>诊断、每日计划、错题复习与学习数据已加入。语音和计时模考将在后续阶段推出。</p><span class="badge">持续完善</span></div></section>
     <footer>fishyeah Chat · 陪你把英语变成自己的能力</footer>
   </main>
 </body>

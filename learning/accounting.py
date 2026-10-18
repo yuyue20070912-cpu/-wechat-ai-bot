@@ -99,6 +99,9 @@ def finish(connection, user_id, request_id, feedback=None, tokens=(None, None)):
              *tokens, user_id, request_id)).fetchone()
         if row and feedback is None:
             _refund(conn, row)
+        if row and feedback is not None:
+            from .reviews import capture_attempt
+            capture_attempt(conn, user_id, request_id)
         return row is not None
 
 
@@ -110,6 +113,7 @@ def history(connection, user_id, request_id=None):
             ' ORDER BY created_at DESC LIMIT 20',
             (user_id, request_id) if request_id else (user_id,)).fetchall()
     return [dict(request_id=str(r[0]), question_id=r[1], exam_type=r[2], skill=r[3], answer=r[4],
+                 purpose='diagnostic' if r[1].startswith('diagnostic-') else 'practice',
                  status=r[5], feedback=r[6], created_at=r[7].isoformat(),
                  finished_at=r[8].isoformat() if r[8] else None) for r in rows]
 

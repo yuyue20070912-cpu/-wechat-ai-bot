@@ -25,11 +25,18 @@ def validate_feedback(value):
 
 def analyze(provider, model, question, answer):
     user_input = input_text(question, answer)
-    if len((SYSTEM + user_input + json.dumps(FEEDBACK_SCHEMA)).encode('utf-8')) > 20000:
+    system = SYSTEM
+    if question.get('diagnostic'):
+        system += '''\n本次任务是解读服务器提供的本地文字诊断报告，不是批改一篇作文。
+        summary 总结有限证据，strengths/improvements 解释已测优势和薄弱项，
+        revised_answer 给出示例学习安排，next_step 给出一步可完成的行动。
+        不改写本地正确率、不把六题结果推断为官方分数、CEFR 或完整水平认证。
+        score 仅为本次建议的内部参考指标，不能声称为考试成绩或客观诊断正确率。'''
+    if len((system + user_input + json.dumps(FEEDBACK_SCHEMA)).encode('utf-8')) > 20000:
         raise ValueError('Input exceeds learning cost bound')
     # Reuse host SDK connection pool, with explicit timeout and zero automatic retries.
     response = provider().with_options(timeout=TIMEOUT_SECONDS, max_retries=0).responses.create(
-        model=model, instructions=SYSTEM, input=user_input,
+        model=model, instructions=system, input=user_input,
         max_output_tokens=MAX_OUTPUT_TOKENS, store=False,
         text={'format': {'type': 'json_schema', 'name': 'learning_feedback',
                          'strict': True, 'schema': FEEDBACK_SCHEMA}},
