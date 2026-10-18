@@ -7,17 +7,28 @@ from .routes import create_blueprint
 
 
 def migrate(connection):
-    sql = (Path(__file__).parent / 'migrations' / '001_learning_profiles.sql').read_text()
     with connection() as conn:
-        conn.execute(sql)
+        # Fail promptly rather than queue application traffic behind DDL.
+        conn.execute("SET LOCAL lock_timeout = '3s'")
+        conn.execute("SET LOCAL statement_timeout = '30s'")
+        conn.execute('SELECT pg_advisory_xact_lock(645001002)')
+        for path in sorted((Path(__file__).parent / 'migrations').glob('*.sql')):
+            conn.execute(path.read_text())
 
 
-def register(app, connection, require_login, rate_limit, init_db):
-    app.register_blueprint(create_blueprint(connection, require_login, rate_limit))
+def register(app, connection, require_login, rate_limit, ai_provider, model, free_messages):
+    app.config['LEARNING_FREE_MESSAGES'] = free_messages
+    app.register_blueprint(create_blueprint(connection, require_login, rate_limit, ai_provider, model))
 
     @app.cli.command('learning-migrate')
     def learning_migrate():
         """Explicitly apply additive learning schema; never runs on requests."""
-        init_db()
+        # Existing users/auth/quota schema must already exist. Never alter host tables.
         migrate(connection)
         click.echo('Learning schema is ready.')
+
+    @app.cli.command('learning-recover')
+    def learning_recover():
+        """Refund a bounded batch of abandoned training requests."""
+        from .accounting import recover
+        click.echo(f'Recovered {recover(connection)} learning requests.')

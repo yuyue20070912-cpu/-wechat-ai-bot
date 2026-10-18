@@ -7,8 +7,12 @@ from .catalog import EXAMS, LEVELS
 from .repository import list_profiles, save_profile
 
 
-def create_blueprint(connection, require_login, rate_limit):
+def create_blueprint(connection, require_login, rate_limit, ai_provider, model):
     bp = Blueprint('learning', __name__)
+
+    @bp.errorhandler(413)
+    def too_large(error):
+        return jsonify(error='提交内容过大，请缩短答案后重试'), 413
 
     @bp.after_request
     def private_response(response):
@@ -68,4 +72,6 @@ def create_blueprint(connection, require_login, rate_limit):
         except Exception:
             return jsonify(error='档案保存失败，请稍后重试'), 503
 
+    from .training import register_training
+    register_training(bp, connection, require_login, rate_limit, ai_provider, model)
     return bp

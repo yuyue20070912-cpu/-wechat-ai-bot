@@ -28,6 +28,7 @@
     el('saved-at').textContent = profile ? '上次保存：' + new Date(profile.updated_at).toLocaleString('zh-CN') : '尚未建立档案';
     el('save-status').textContent = '';
     el('profile-section').hidden = false;
+    document.dispatchEvent(new CustomEvent('learning:exam', {detail: {exam, csrf}}));
     if (focus) el('profile-heading').focus();
   }
   async function load() {

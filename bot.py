@@ -946,7 +946,8 @@ def chat():
 
 
 from learning import register as register_learning
-register_learning(app, db_connection, require_login, rate_limit, init_db)
+register_learning(app, db_connection, require_login, rate_limit,
+                  lambda: ai_client(), lambda: MODEL, lambda: FREE_DAILY_MESSAGES)
 
 
 if __name__ == "__main__":

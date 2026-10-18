@@ -7,6 +7,7 @@
   <title>AI 伴学 · fishyeah Chat</title>
   <link rel="stylesheet" href="/static/learning.css">
   <script src="/static/learning.js" defer></script>
+  <script src="/static/learning-practice.js" defer></script>
 </head>
 <body>
   <aside class="sidebar">
@@ -28,7 +29,27 @@
         <button id="save" type="submit">保存学习档案 <span>↗</span></button><p id="save-status" role="status" aria-live="polite"></p>
       </form>
     </section>
-    <section class="next"><span class="spark">✧</span><div><h2>先有目标，再有每一步。</h2><p>学习档案现已开放。专项练习、AI 私人导师、学习进度与计时模考将在后续阶段推出。</p><span class="badge">后续开放</span></div></section>
+    <section id="practice-section" class="practice" aria-labelledby="practice-heading" hidden>
+      <div class="section-title"><h2 id="practice-heading">文字专项练习</h2><span>原创小题 · 专注每一次表达</span></div>
+      <p class="practice-note">口语先练文字表达，听力先做文本理解。当前不录音、不播放音频，也不评价发音或听辨能力。</p>
+      <p id="practice-usage" role="status"></p>
+      <label for="practice-skill">选择训练</label><select id="practice-skill"></select>
+      <p id="practice-status" role="status" aria-live="polite"></p>
+      <div id="question-panel" hidden>
+        <div class="question-top"><h3 id="question-title"></h3><button id="next-question" type="button">换一道</button></div>
+        <span id="supplemental" class="badge" hidden>拓展训练 · 非本考试笔试分项</span>
+        <p id="question-guidance" class="practice-note"></p>
+        <details id="question-material"><summary id="material-label">阅读材料</summary><p id="material-text" lang="en"></p></details>
+        <p id="question-prompt" lang="en"></p>
+        <form id="answer-form"><label for="practice-answer">我的答案</label><textarea id="practice-answer" rows="8" maxlength="4000" required placeholder="用英文写下你的答案…" aria-describedby="answer-help" spellcheck="true"></textarea>
+          <p id="answer-help" class="practice-note">最多 4000 字。点击提交后，答案将交给 AI 分析；成功反馈消耗 1 条现有聊天/会员消息额度。失败退还消息额度，AI 调用次数仍计入当日上限。</p>
+          <button id="analyze-answer" type="submit">提交并获取 AI 反馈</button>
+        </form>
+      </div>
+      <section id="feedback" class="feedback" aria-labelledby="feedback-heading" hidden><h3 id="feedback-heading" tabindex="-1">AI 学习反馈</h3><div id="feedback-content"></div></section>
+      <details class="history"><summary>最近的练习记录（最多 20 条）</summary><button id="refresh-practice" type="button">刷新状态与记录</button><div id="practice-history"></div></details>
+    </section>
+    <section class="next"><span class="spark">✧</span><div><h2>每一次练习，都有下一步。</h2><p>文字专项练习与 AI 反馈已加入。语音、私人导师、学习进度与计时模考将在后续阶段推出。</p><span class="badge">持续完善</span></div></section>
     <footer>fishyeah Chat · 陪你把英语变成自己的能力</footer>
   </main>
 </body>
