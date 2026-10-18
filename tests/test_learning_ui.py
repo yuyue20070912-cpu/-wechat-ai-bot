@@ -87,6 +87,20 @@ def test_voice_browser_permissions_native_recording_and_fallback(user,engine,wid
                 page.locator('#voice-example').click()
                 assert page.locator('#voice-example').evaluate('(a)=>a.error===null')
             page.locator('#voice-clear').click();assert page.locator('#voice-preview').is_hidden()
+            for index in (3,4):
+                page.locator('#voice-answer').fill('I enjoy learning from people around me.')
+                page.locator('#voice-next').click()
+                pw.expect(page.locator('#voice-part')).to_contain_text(f'第 {index} / 7')
+            pw.expect(page.locator('#voice-part')).to_contain_text('Part 2')
+            page.locator('#voice-prepare').click()
+            pw.expect(page.locator('#voice-clock')).to_contain_text('准备剩余')
+            if page.evaluate('Boolean(window.nativeRecorder)'):
+                page.locator('#voice-record').click()
+                pw.expect(page.locator('#voice-prepare')).to_be_disabled()
+                pw.expect(page.locator('#voice-clock')).to_contain_text('录音 1 / 120')
+                page.locator('#voice-stop').click()
+                pw.expect(page.locator('#voice-preview')).to_be_visible()
+                assert page.evaluate('window.testMicTrack.readyState')=='ended'
             page.locator('[data-exam="cet4"]').click()
             page.locator('#voice-listening-options button').first.wait_for()
             page.locator('#voice-listening-options button').first.click()

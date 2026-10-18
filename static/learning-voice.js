@@ -27,6 +27,7 @@
     $('voice-resume').disabled = busy || recording;
     $('voice-delete').disabled = busy || recording;
     $('voice-read-prompt').disabled = busy || recording || !current || current.completed;
+    $('voice-prepare').disabled = busy || recording || !current || current.completed;
     document.body.dataset.voiceBusy = busy || recording ? 'true' : 'false';
     document.querySelectorAll('[data-exam]').forEach(button => {
       button.disabled = busy || recording || ['practiceBusy','hubBusy','mockBusy'].some(k => document.body.dataset[k] === 'true');
@@ -39,10 +40,11 @@
   }
   function release() { if (stream) stream.getTracks().forEach(track => track.stop()); stream = null; clearInterval(timer); }
   function clearAudio() {
+    clearInterval(preparation); window.speechSynthesis?.cancel();
     generation++; if (recorder && recorder.state !== 'inactive') recorder.stop(); release();
     recorder = null; chunks = []; blob = null;
     if (url) URL.revokeObjectURL(url); url = null;
-    $('voice-preview').pause(); $('voice-preview').removeAttribute('src'); $('voice-preview').hidden = true;
+    $('voice-preview').pause(); $('voice-preview').removeAttribute('src'); $('voice-preview').load(); $('voice-preview').hidden = true;
     controls();
   }
   function stop() { if (recorder && recorder.state !== 'inactive') recorder.stop(); release(); }
