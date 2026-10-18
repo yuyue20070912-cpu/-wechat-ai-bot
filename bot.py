@@ -620,7 +620,7 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <input id="password" type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="密码（新账号至少10位，包含字母和数字）">
 <button id="loginBtn">登录</button><button id="registerBtn">注册新账号</button>
 <p style="font-size:13px;color:#666">当前不发送短信验证码，手机号未经验证；请勿使用他人的号码注册。</p></section>
-<section id="chatArea" class="hidden"><aside class="fish-side" id="fishSide"><div class="side-user">已登录：<span id="sideWho"></span></div><div id="sideContents"></div></aside><button class="fish-side-toggle" id="sideToggle" type="button" aria-expanded="false">☰ 菜单</button><p class="legacy-account">已登录：<span id="who"></span> <button id="logoutBtn">退出</button></p>
+<section id="chatArea" class="hidden"><aside class="fish-side" id="fishSide"><div class="side-user">已登录：<span id="sideWho"></span></div><nav aria-label="学习导航"><a href="/learning" style="display:block;padding:14px 0;color:inherit;text-decoration:none;font-weight:600">✦ AI 伴学 →</a></nav><div id="sideContents"></div></aside><button class="fish-side-toggle" id="sideToggle" type="button" aria-expanded="false">☰ 菜单</button><p class="legacy-account">已登录：<span id="who"></span> <button id="logoutBtn">退出</button></p>
 <details id="security"><summary>账号安全 · 修改密码</summary><input id="oldPassword" type="password" autocomplete="current-password" placeholder="当前密码"><input id="newPassword" type="password" autocomplete="new-password" placeholder="新密码（至少10位，包含不同类型字符）"><button id="changePasswordBtn">修改密码</button></details>
 <details id="membership"><summary>✦ fishyeah 会员中心</summary>
 <p class="member-intro">解锁更多对话额度 · 轻松使用 fishyeah Chat</p>
@@ -943,6 +943,10 @@ def chat():
         elif event["type"] == "error":
             return jsonify(error=event["error"]), event.get("status", 502)
     return jsonify(error="AI 请求失败，请稍后再试"), 502
+
+
+from learning import register as register_learning
+register_learning(app, db_connection, require_login, rate_limit, init_db)
 
 
 if __name__ == "__main__":

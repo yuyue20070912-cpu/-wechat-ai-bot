@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f5f5f7">
+  <title>AI 伴学 · fishyeah Chat</title>
+  <link rel="stylesheet" href="/static/learning.css">
+  <script src="/static/learning.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/">fishyeah<span>Chat</span></a>
+    <nav aria-label="主导航"><a href="/">◌　返回聊天</a><a href="/learning" aria-current="page">✦　AI 伴学</a></nav>
+    <p class="side-note">每天一点，走得更远。<br>YOUR LEARNING COMPANION</p>
+  </aside>
+  <main>
+    <header><span>学习中心</span><span class="badge">✦ AI 伴学</span></header>
+    <section class="hero"><p class="eyebrow">A LITTLE EVERY DAY.</p><h1>你的下一步，<br><span>从这里开始。</span></h1><p>选一场考试，定一个目标。让每一次进步都有方向。</p></section>
+    <section aria-labelledby="exams-heading"><div class="section-title"><h2 id="exams-heading">选择你的考试</h2><span>为不同目标，找到适合的节奏</span></div><div id="exams" class="exam-grid" aria-busy="true"></div></section>
+    <p id="status" role="status" aria-live="polite">正在加载学习中心…</p>
+    <button id="retry" type="button" hidden>重新加载</button>
+    <section id="profile-section" class="profile" aria-labelledby="profile-heading" hidden>
+      <div class="profile-intro"><p class="eyebrow">YOUR LEARNING PROFILE</p><h2 id="profile-heading" tabindex="-1">我的学习档案</h2><p id="profile-description"></p><p id="saved-at"></p></div>
+      <form id="profile-form">
+        <label for="target-score">目标分数</label><input id="target-score" name="target_score" type="number" required inputmode="decimal" aria-describedby="score-help"><small id="score-help"></small>
+        <label for="current-level">当前水平 <span>自我评估</span></label><select id="current-level" name="current_level"></select>
+        <button id="save" type="submit">保存学习档案 <span>↗</span></button><p id="save-status" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+    <section class="next"><span class="spark">✧</span><div><h2>先有目标，再有每一步。</h2><p>学习档案现已开放。专项练习、AI 私人导师、学习进度与计时模考将在后续阶段推出。</p><span class="badge">后续开放</span></div></section>
+    <footer>fishyeah Chat · 陪你把英语变成自己的能力</footer>
+  </main>
+</body>
+</html>

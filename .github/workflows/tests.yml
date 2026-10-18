@@ -1,4 +1,4 @@
-name: Chat regression tests
+name: Chat and learning regression tests
 on: [pull_request, workflow_dispatch]
 jobs:
   test:
@@ -12,5 +12,6 @@ jobs:
         with:
           node-version: '22'
       - run: pip install -r requirements-dev.txt
+      - run: python -m playwright install --with-deps chromium
       - run: python -m pytest -q
       - run: node tests/test_stream.js
