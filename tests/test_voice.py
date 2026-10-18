@@ -8,7 +8,10 @@ from threading import Event
 from types import SimpleNamespace as NS
 from uuid import uuid4
 
-import httpx
+try:
+    import httpx2 as httpx  # OpenAI 3.x transport dependency.
+except ImportError:
+    import httpx  # Older supported SDK installations.
 import pytest
 from openai import OpenAI
 
