@@ -3,4 +3,5 @@ gunicorn
 openai
 python-dotenv
 psycopg[binary]
+psycopg-pool
 qrcode[pil]
