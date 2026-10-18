@@ -1,5 +1,10 @@
 import os
 import re
+import json
+from functools import lru_cache
+from threading import Lock
+from time import monotonic
+from uuid import UUID
 from datetime import timedelta
 from secrets import token_urlsafe, compare_digest
 from io import BytesIO
@@ -8,11 +13,13 @@ from hashlib import sha256
 from functools import wraps
 
 import psycopg
-from flask import Flask, jsonify, request, send_from_directory, send_file, session
+from psycopg_pool import ConnectionPool
+from flask import Flask, jsonify, request, send_from_directory, send_file, session, Response
 from openai import OpenAI
 from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
+app.logger.setLevel("INFO")
 app.config.update(
     SECRET_KEY=os.environ.get("SESSION_SECRET_KEY"),
     SESSION_COOKIE_HTTPONLY=True,
@@ -55,11 +62,30 @@ def allow_auth(action, phone):
             and rate_limit(action + ":phone", phone, 8 if action == "login" else 3))
 
 
+@lru_cache(maxsize=1)
+def database_pool():
+    return ConnectionPool(os.environ["DATABASE_URL"], min_size=0, max_size=8,
+                          timeout=8, open=True, kwargs={"connect_timeout": 8})
+
+
 def db_connection():
-    return psycopg.connect(os.environ["DATABASE_URL"], connect_timeout=8)
+    return database_pool().connection()
+
+
+_schema_lock = Lock()
+_schema_ready = False
 
 
 def init_db():
+    global _schema_ready
+    if not _schema_ready:
+        with _schema_lock:
+            if not _schema_ready:
+                _create_schema()
+                _schema_ready = True
+
+
+def _create_schema():
     with db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -115,6 +141,86 @@ def init_db():
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
             """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS chat_requests (
+                    user_id BIGINT NOT NULL REFERENCES users(id),
+                    request_id UUID NOT NULL,
+                    usage_day DATE NOT NULL,
+                    subscription_id BIGINT REFERENCES subscriptions(id),
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (user_id,request_id)
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_chat_pending ON chat_requests(created_at) WHERE status='pending'")
+
+
+def recover_stale_chats():
+    """Recover committed reservations after a worker crash; no external scheduler needed."""
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT user_id,request_id FROM chat_requests WHERE status='pending' AND created_at < NOW()-INTERVAL '10 minutes'")
+            stale = cur.fetchall()
+    for user_id, request_id in stale:
+        settle_chat(user_id, request_id, False)
+
+
+def reserve_chat(user_id, request_id):
+    """The ledger and allowance update commit together, including duplicate detection."""
+    recover_stale_chats()
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO chat_requests (user_id, request_id, usage_day)
+                VALUES (%s,%s,(NOW() AT TIME ZONE 'UTC')::date)
+                ON CONFLICT DO NOTHING RETURNING usage_day
+            """, (user_id, request_id))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            usage_day = row[0]
+            cur.execute("""
+                SELECT id FROM subscriptions
+                WHERE user_id=%s AND starts_at <= NOW() AND ends_at > NOW()
+                ORDER BY ends_at DESC, id DESC LIMIT 1 FOR UPDATE
+            """, (user_id,))
+            sub = cur.fetchone()
+            if sub:
+                cur.execute("UPDATE subscriptions SET used=used+1 WHERE id=%s AND used < message_limit RETURNING message_limit-used", (sub[0],))
+            else:
+                cur.execute("""
+                    INSERT INTO daily_message_usage (user_id,usage_day,used) VALUES (%s,%s,1)
+                    ON CONFLICT (user_id,usage_day) DO UPDATE SET used=daily_message_usage.used+1
+                    WHERE daily_message_usage.used < %s RETURNING %s-used
+                """, (user_id, usage_day, FREE_DAILY_MESSAGES, FREE_DAILY_MESSAGES))
+            remaining = cur.fetchone()
+            cur.execute("UPDATE chat_requests SET subscription_id=%s,status=%s WHERE user_id=%s AND request_id=%s",
+                        (sub[0] if sub else None, 'pending' if remaining else 'rejected', user_id, request_id))
+            return remaining[0] if remaining else -1
+
+
+def settle_chat(user_id, request_id, success):
+    """A failed settlement can be retried; the state transition prevents double refunds."""
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE chat_requests SET status=%s WHERE user_id=%s AND request_id=%s AND status='pending'
+                RETURNING subscription_id,usage_day
+            """, ('completed' if success else 'refunded', user_id, request_id))
+            row = cur.fetchone()
+            if row is None or success:
+                return
+            if row[0] is not None:
+                cur.execute("UPDATE subscriptions SET used=GREATEST(0,used-1) WHERE id=%s AND user_id=%s", (row[0], user_id))
+            else:
+                cur.execute("UPDATE daily_message_usage SET used=GREATEST(0,used-1) WHERE user_id=%s AND usage_day=%s", (user_id, row[1]))
+
+
+@lru_cache(maxsize=1)
+def ai_client():
+    # Reuse the SDK HTTP connection pool. Avoid hidden automatic retry delays.
+    return OpenAI(api_key=os.environ["OPENAI_API_KEY"], max_retries=0, timeout=60.0)
+
 
 def get_active_subscription(user_id):
     with db_connection() as conn:
@@ -508,6 +614,7 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <div class="ui-actions"><button id="themeBtn" type="button">◐ 切换主题</button><button id="newChatBtn" type="button">＋ 新对话</button></div><p id="quotaInfo">免费版每天可发送5条消息（UTC 00:00重置）</p><div id="chat"><div class="chat-row from-ai"><img class="chat-avatar" src="/app-icon" alt="fishyeah Chat"><div class="msg">你好，我是 fishyeah Chat。</div></div></div>
 <input id="message" placeholder="输入你的问题..."><button id="sendBtn">发送</button></section>
 <p id="notice" role="status"></p></main>
+<script src="/static/chat-stream.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 let activeOrderId=null;
@@ -581,12 +688,19 @@ $("loginBtn").onclick=()=>authenticate("login");
 $("registerBtn").onclick=()=>authenticate("register");
 $("logoutBtn").onclick=async()=>{try{await api("/auth/logout");showUser(null);}catch(e){notice(e.message);}};
 $("sendBtn").onclick=async()=>{
+ if($("sendBtn").disabled)return;
  const message=$("message").value.trim();if(!message)return;
- const add=(label,text)=>{const el=document.createElement("div");const isUser=label==="🧑";el.className="msg"+(isUser?" user":label==="❌"?" error":"");el.textContent=text;const row=document.createElement("div");row.className="chat-row "+(isUser?"from-user":"from-ai");const avatar=document.createElement("img");avatar.className="chat-avatar";avatar.alt=isUser?"我的头像":"fishyeah Chat";avatar.src=isUser?"/static/chat-user-avatar.svg":"/app-icon";if(isUser){row.append(el,avatar);}else{row.append(avatar,el);} $("chat").appendChild(row);$("chat").scrollTop=$("chat").scrollHeight;};
+ const add=(label,text)=>{const el=document.createElement("div");const isUser=label==="🧑";el.className="msg"+(isUser?" user":label==="❌"?" error":"");el.textContent=text;const row=document.createElement("div");row.className="chat-row "+(isUser?"from-user":"from-ai");const avatar=document.createElement("img");avatar.className="chat-avatar";avatar.alt=isUser?"我的头像":"fishyeah Chat";avatar.src=isUser?"/static/chat-user-avatar.svg":"/app-icon";if(isUser){row.append(el,avatar);}else{row.append(avatar,el);} $("chat").appendChild(row);$("chat").scrollTop=$("chat").scrollHeight;return el;};
  add("🧑",message);$("message").value="";$("sendBtn").disabled=true;
- try{const result=await api("/chat",{message});add("🤖",result.reply);}
- catch(e){add("❌",e.message);}
- finally{$("sendBtn").disabled=false;refreshQuota();}
+ const bubble=add("🤖","AI 正在回复…");bubble.setAttribute("role","status");
+ $("newChatBtn").disabled=true;$("chat").setAttribute("aria-busy","true");
+ let answer="";
+ try{
+  await streamChat(message,event=>{
+   if(event.type==="delta"){answer+=event.text;bubble.textContent=answer;$("chat").scrollTop=$("chat").scrollHeight;}
+  });
+ }catch(e){bubble.textContent=(answer?answer+"\\n\\n":"")+"回复未完成："+e.message;bubble.classList.add("error");}
+ finally{$("sendBtn").disabled=false;$("newChatBtn").disabled=false;$("chat").removeAttribute("aria-busy");refreshQuota();}
 };
 fetch("/auth/me").then(r=>r.json()).then(data=>showUser(data.phone||null)).catch(()=>{});
 </script></body></html>"""
@@ -702,27 +816,100 @@ def chat():
     message = data.get("message")
     if not isinstance(message, str) or not message.strip() or len(message) > 4000:
         return jsonify(error="请输入不超过4000字的消息"), 400
-    user_id = session["user_id"]
-    try:
-        init_db()
-        kind, subscription_id, remaining = reserve_message(user_id)
-    except Exception:
-        app.logger.exception("Quota check failed")
-        return jsonify(error="额度检查暂时不可用，请稍后再试"), 503
-    if remaining is None:
-        return jsonify(error="当前消息额度已用完，请等待重置或续费"), 429
-    try:
-        client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-        response = client.responses.create(model=MODEL, input=message.strip())
-        return jsonify(reply=response.output_text, remaining=remaining)
-    except Exception:
-        app.logger.exception("AI request failed")
+    streaming = data.get("stream") is True
+    request_id = data.get("request_id") or token_urlsafe(18)
+    if streaming:
         try:
-            refund_message(user_id, kind, subscription_id)
+            request_id = str(UUID(request_id))
+        except (ValueError, TypeError, AttributeError):
+            return jsonify(error="无效请求编号"), 400
+    else:
+        from uuid import uuid4
+        request_id = str(uuid4())
+    user_id = session["user_id"]
+
+    def events():
+        # Yield before database/API work so the browser can show progress immediately.
+        yield {"type": "ready"}
+        reserved = completed = False
+        upstream = None
+        started = monotonic()
+        error_status = 503
+        try:
+            init_db()
+            remaining = reserve_chat(user_id, request_id)
+            if remaining is None:
+                yield {"type": "error", "error": "该请求已处理，请勿重复发送", "status": 409}
+                return
+            if remaining < 0:
+                yield {"type": "error", "error": "当前消息额度已用完，请等待重置或续费", "status": 429}
+                return
+            reserved = True
+            error_status = 502
+            upstream = ai_client().responses.create(model=MODEL, input=message.strip(), stream=True)
+            text_received = False
+            for event in upstream:
+                if monotonic() - started > 120:
+                    raise TimeoutError("Chat exceeded total time budget")
+                if event.type == "response.output_text.delta":
+                    if event.delta:
+                        if not text_received:
+                            app.logger.info("chat first_text_ms=%.0f", (monotonic()-started)*1000)
+                        text_received = True
+                        yield {"type": "delta", "text": event.delta}
+                elif event.type == "response.completed":
+                    completed = True
+                elif event.type in ("response.failed", "response.incomplete", "error"):
+                    raise RuntimeError("Upstream response did not complete")
+            if not completed or not text_received:
+                completed = False
+                raise RuntimeError("Empty or interrupted upstream response")
+            settle_chat(user_id, request_id, True)
+            reserved = False
+            yield {"type": "done", "remaining": remaining}
         except Exception:
-            app.logger.exception("Quota refund failed")
-        return jsonify(error="AI 请求失败，请稍后再试"), 502
+            app.logger.exception("Chat request failed")
+            if reserved:
+                try:
+                    settle_chat(user_id, request_id, False)
+                    reserved = False
+                except Exception:
+                    app.logger.exception("Refund deferred to stale reservation recovery")
+            yield {"type": "error", "error": "AI 请求失败，请稍后再试", "status": error_status}
+        finally:
+            try:
+                if upstream is not None:
+                    upstream.close()
+            finally:
+                if reserved:
+                    try:
+                        settle_chat(user_id, request_id, False)
+                    except Exception:
+                        app.logger.exception("Refund pending; recover_stale_chats will retry")
+
+    if streaming:
+        def encode():
+            source = events()
+            try:
+                for event in source:
+                    yield json.dumps(event, ensure_ascii=False) + "\n"
+            finally:
+                source.close()
+        return Response(encode(), mimetype="application/x-ndjson", headers={
+            "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no",
+        })
+    # Keep the existing JSON API for clients that do not opt into streaming.
+    reply = []
+    for event in events():
+        if event["type"] == "delta":
+            reply.append(event["text"])
+        elif event["type"] == "done":
+            return jsonify(reply="".join(reply), remaining=event["remaining"])
+        elif event["type"] == "error":
+            return jsonify(error=event["error"]), event.get("status", 502)
+    return jsonify(error="AI 请求失败，请稍后再试"), 502
 
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "10000")))
+
