@@ -176,3 +176,49 @@ def test_onboarding_profiles_navigation_and_account_changes(user, engine, width,
             context.close();browser.close()
     finally:
         server.shutdown();thread.join(timeout=5);server.server_close()
+
+
+@pytest.mark.parametrize('engine', ['webkit', 'chromium'])
+def test_rapid_exam_saves_reload_and_password_login(user, engine):
+    from werkzeug.security import generate_password_hash
+    with bot.db_connection() as conn:
+        conn.execute('TRUNCATE auth_rate_limits')
+    playwright = pytest.importorskip('playwright.sync_api')
+    with bot.db_connection() as conn:
+        conn.execute('UPDATE users SET password_hash=%s WHERE id=%s',
+                     (generate_password_hash('Test-password-123'), user))
+    server = make_server('127.0.0.1', 0, bot.app, threaded=True)
+    thread = Thread(target=server.serve_forever, daemon=True); thread.start()
+    origin = f'http://127.0.0.1:{server.server_port}'
+    try:
+        with playwright.sync_playwright() as p:
+            browser_type = getattr(p, engine)
+            if not Path(browser_type.executable_path).exists():
+                if os.getenv('CI'): pytest.fail('CI requires browser installation')
+                pytest.skip('Install browser to run onboarding UI tests')
+            browser = browser_type.launch()
+            context = browser.new_context()
+            page = context.new_page()
+            credentials = dict(phone='13800000000', password='Test-password-123')
+            assert page.request.post(origin+'/auth/login', data=credentials).ok
+            csrf = page.request.get(origin+'/api/learning/profiles').json()['csrf_token']
+            # No sleeps between saves; wait only for each successful response.
+            for exam, score in [('ielts', 7), ('cet4', 520), ('cet6', 600)]:
+                response = page.request.put(origin+'/api/learning/profiles/'+exam,
+                    data=dict(target_score=score, current_level='advanced'),
+                    headers={'X-Learning-CSRF': csrf})
+                assert response.ok
+            for relogin in [False, True]:
+                if relogin:
+                    assert page.request.post(origin+'/auth/logout').ok
+                    assert page.request.get(origin+'/api/learning/profiles').status == 401
+                    assert page.request.post(origin+'/auth/login', data=credentials).ok
+                page.goto(origin+'/learning'); page.reload()
+                playwright.expect(page.locator('#view-overview')).to_be_visible()
+                playwright.expect(page.locator('#current-exam')).to_contain_text('六级')
+                archive = page.request.get(origin+'/api/learning/profiles').json()
+                assert archive['active_exam_type'] == 'cet6'
+                assert len(archive['profiles']) == 3
+            browser.close()
+    finally:
+        server.shutdown(); thread.join(timeout=5); server.server_close()
