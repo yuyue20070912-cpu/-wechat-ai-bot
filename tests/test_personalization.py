@@ -73,12 +73,13 @@ def test_personalization_login_required(method,path):
 def test_exam_specific_diagnostic_no_paid_calls(user, ai, exam):
     c = client(user)
     catalog = c.get('/api/learning/diagnostics/' + exam).json['test']
-    assert len(catalog['questions']) == 6
+    assert len(catalog['questions']) == 5
+    assert all(q['skill'] != 'listening' for q in catalog['questions'])
     assert all('correct_index' not in q and 'explanation' not in q for q in catalog['questions'])
     response = diagnose(c, exam)
     assert response.status_code == 200
     result = response.json['diagnostic']['result']
-    assert result['accuracy'] == 100 and result['correct'] == 6 and result['weak_skills'] == []
+    assert result['accuracy'] == 100 and result['correct'] == 5 and result['weak_skills'] == []
     assert result['method'] == '本地客观判分，不调用付费 AI'
     assert not ai.calls and items(c, exam) == []
     overview = c.get('/api/learning/overview/' + exam).json['overview']
@@ -94,7 +95,7 @@ def test_diagnostic_replay_and_concurrency(user):
     assert all(r.status_code == 200 for r in results)
     assert sum(not r.json['replayed'] for r in results) == 1
     c = client(user)
-    assert len(items(c)) == 6
+    assert len(items(c)) == 5
     assert diagnose(c, correct=True, request_id=key).status_code == 409
     with bot.db_connection() as conn:
         assert conn.execute('SELECT COUNT(*) FROM learning_diagnostics').fetchone()[0] == 1
@@ -361,3 +362,40 @@ def test_local_diagnostic_request_rate_is_bounded(user):
     c=client(user)
     for _ in range(20): assert diagnose(c).status_code==200
     assert diagnose(c).status_code==429
+
+
+def test_legacy_diagnostic_replay_keeps_saved_result(user, monkeypatch):
+    from learning import diagnostic_repository
+    c = client(user)
+    key = str(uuid4())
+    old_questions = GROUPS['entry-v1']['ielts']
+    payload = dict(request_id=key, version='entry-v1',
+                   answers={q['id']: q['correct_index'] for q in old_questions})
+    # Simulate a result saved before the new five-question groups were released.
+    with monkeypatch.context() as old:
+        old.setattr(diagnostic_repository, 'GROUP_VERSIONS', ('entry-v1', 'entry-v1-b', 'entry-v1-c'))
+        saved = post(c, 'diagnostics/ielts', payload)
+    assert saved.status_code == 200
+    replay = post(c, 'diagnostics/ielts', payload)
+    assert replay.status_code == 200 and replay.json['replayed']
+    assert replay.json['diagnostic'] == saved.json['diagnostic']
+    assert replay.json['diagnostic']['result']['total'] == 6
+    next_test = c.get('/api/learning/diagnostics/ielts').json['test']
+    assert next_test['version'] == 'entry-v2-b'
+    assert len(next_test['questions']) == 5
+    assert all(q['skill'] != 'listening' for q in next_test['questions'])
+
+
+def test_plan_ignores_legacy_listening_weakness(user):
+    from learning import diagnostic_repository
+    from unittest.mock import patch
+    c = client(user)
+    with patch.object(diagnostic_repository, 'GROUP_VERSIONS', ('entry-v1',)):
+        questions = GROUPS['entry-v1']['ielts']
+        response = post(c, 'diagnostics/ielts', dict(request_id=str(uuid4()), version='entry-v1',
+            answers={q['id']: (q['correct_index']+1)%3 if q['skill']=='listening' else q['correct_index'] for q in questions}))
+    assert response.status_code == 200
+    p = plan(c)
+    assert all(t.get('skill') != 'listening' for t in p['tasks'])
+    # Generating the new plan must not rewrite the saved diagnostic.
+    assert c.get('/api/learning/diagnostic-results/'+response.json['diagnostic']['request_id']).json['diagnostic']['result']['weak_skills'] == ['listening']

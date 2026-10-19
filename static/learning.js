@@ -30,7 +30,7 @@
     document.querySelectorAll('.exam').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.exam === exam.id)));
     const profile = profiles.find(item => item.exam_type === exam.id), draft = drafts.get(exam.id);
     el('profile-heading').textContent = exam.name + ' · 学习档案';
-    el('profile-description').textContent = '设定你的目标，记录目前的水平。保存成功后应用目标并进入总览。';
+    el('profile-description').textContent = '';
     const input = el('target-score');
     input.min = exam.score_step; input.max = exam.max_score; input.step = exam.score_step;
     input.value = draft ? draft.score : profile ? profile.target_score : '';
@@ -73,7 +73,7 @@
         const button=document.createElement('button'); button.type='button'; button.className='exam';
         button.dataset.exam=exam.id; button.setAttribute('aria-pressed','false'); button.setAttribute('aria-controls','profile-section');
         for (const [tag, className, text] of [
-          ['span','icon',['◎','IV','VI'][index]],['span','arrow','↗'],['strong','',exam.name],['p','',exam.subtitle],['span','skills',exam.skills.join(' · ')]
+          ['span','icon',['◎','IV','VI'][index]],['span','arrow','↗'],['strong','',exam.name]
         ]) { const node=document.createElement(tag); node.className=className; node.textContent=text; button.append(node); }
         button.onclick=() => { if(!busy)choose(exam); }; el('exams').append(button);
       });
@@ -85,7 +85,7 @@
       dispatch('learning:profile-ready',{hasProfile:Boolean(latest)});
       if(latest)activate(initial);
       else el('current-exam').textContent='尚未保存学习目标';
-      el('status').textContent=latest ? `当前目标：${initial.name}。可在「考试选择」修改完整档案。` : '首次使用 · 建立学习档案';
+      el('status').textContent=latest ? '' : '首次使用 · 建立学习档案';
     } catch(error) {
       el('status').textContent=error.message; el('retry').hidden=false;
     } finally { el('exams').setAttribute('aria-busy','false'); }

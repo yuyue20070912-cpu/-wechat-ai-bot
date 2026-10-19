@@ -19,9 +19,9 @@ def context(conn, user_id, exam):
     due = conn.execute('''SELECT COUNT(*) FROM learning_review_items
         WHERE user_id=%s AND exam_type=%s AND due_at<=NOW()''', (user_id, exam)).fetchone()[0]
     weak = list(diag[1]['weak_skills']) if diag else []
-    weak = list(dict.fromkeys([skill for skill, avg in averages if avg < 70] + weak))
-    fallback = (['vocabulary', 'reading', 'writing', 'listening'] if profile['current_level'] in ('beginner', 'not_assessed')
-                else ['writing', 'speaking', 'reading', 'listening'] if exam == 'ielts'
+    weak = [skill for skill in dict.fromkeys([skill for skill, avg in averages if avg < 70] + weak) if skill != 'listening']
+    fallback = (['vocabulary', 'reading', 'writing', 'translation'] if profile['current_level'] in ('beginner', 'not_assessed')
+                else ['writing', 'speaking', 'reading', 'vocabulary'] if exam == 'ielts'
                 else ['writing', 'translation', 'reading', 'vocabulary'])
     ranked = list(dict.fromkeys(weak + fallback))
     high_goal = profile['target_score'] is not None and profile['target_score'] >= (7 if exam == 'ielts' else 550)
@@ -33,7 +33,7 @@ def context(conn, user_id, exam):
 def build_tasks(inputs):
     tasks = []
     if not inputs['diagnostic_id']:
-        tasks.append(dict(id='diagnostic', title='完成六题轮换入门筛查', kind='diagnostic', minutes=6,
+        tasks.append(dict(id='diagnostic', title='完成五题入门筛查', kind='diagnostic', minutes=5,
                           reason='用客观题结果补充自评，找到下一步。'))
     if inputs['due_reviews']:
         tasks.append(dict(id='review', title=f'复习到期错题（本次最多 {min(5, inputs["due_reviews"])} 道）',

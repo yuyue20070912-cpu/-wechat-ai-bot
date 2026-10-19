@@ -1,8 +1,6 @@
 """Original, versioned screening tests. Local scoring is not an official exam."""
-from .questions import SKILLS
-
-TEST_VERSION = 'entry-v1'
-NOTICE = '六题轮换入门筛查，只观察本题组基础，不能代表完整英语水平；不是官方成绩、CEFR 认证、发音或听辨测试。'
+TEST_VERSION = 'entry-v2'
+NOTICE = '文字入门筛查，不能代表完整英语水平，非正式能力评级。'
 
 
 def question(key, skill, prompt, options, correct, explanation):
@@ -10,7 +8,7 @@ def question(key, skill, prompt, options, correct, explanation):
                 correct_index=correct, explanation=explanation)
 
 
-TESTS = {
+LEGACY_TESTS = {
     'ielts': [
         question('iv', 'vocabulary', 'The findings are tentative. What does tentative mean?',
                  ['final', 'not yet certain', 'unrelated'], 1, 'tentative 表示暂定、尚未确定，不能误解为最终结论。'),
@@ -55,7 +53,7 @@ TESTS = {
 
 def alternate_group(form):
     groups={}
-    for exam in TESTS:
+    for exam in LEGACY_TESTS:
         easy=exam=='cet4'
         vocab = ({'ielts':('plausible','reasonable'), 'cet4':('borrow','use temporarily'), 'cet6':('substantiate','support with evidence')}
                  if form=='b' else {'ielts':('allocate','assign for a purpose'), 'cet4':('arrive','reach a place'), 'cet6':('inhibit','hold back or prevent')})[exam]
@@ -84,8 +82,16 @@ def alternate_group(form):
     return groups
 
 
-GROUPS={TEST_VERSION:TESTS,'entry-v1-b':alternate_group('b'),'entry-v1-c':alternate_group('c')}
-GROUP_VERSIONS=tuple(GROUPS)
+GROUPS={'entry-v1':LEGACY_TESTS,'entry-v1-b':alternate_group('b'),'entry-v1-c':alternate_group('c')}
+# Retain legacy groups for historical replay and review; new screens exclude listening.
+LEGACY_GROUPS = dict(GROUPS)
+for version, exams in LEGACY_GROUPS.items():
+    GROUPS[version.replace('entry-v1', 'entry-v2')] = {
+        exam: [q for q in items if q['skill'] != 'listening']
+        for exam, items in exams.items()
+    }
+TESTS = GROUPS[TEST_VERSION]
+GROUP_VERSIONS = tuple(version for version in GROUPS if version.startswith('entry-v2'))
 
 
 def public_test(exam,index=0):
@@ -94,10 +100,11 @@ def public_test(exam,index=0):
         {k: v for k, v in q.items() if k not in ('correct_index', 'explanation')} for q in GROUPS[version][exam]])
 
 
-def score(exam, answers, version=TEST_VERSION):
+def score(exam, answers, version=None):
+    version = version or TEST_VERSION
     items = GROUPS[version][exam]
     if not isinstance(answers, dict) or set(answers) != {q['id'] for q in items}:
-        raise ValueError('请完成本场诊断的全部六道题')
+        raise ValueError('请完成本场诊断的全部题目')
     details = []
     for q in items:
         value = answers[q['id']]
