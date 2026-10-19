@@ -614,7 +614,16 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 #orderResult{padding:12px;border-radius:12px;background:#f0f2f6;font-size:13px;line-height:1.7;margin-top:10px}
 .member-safe{font-size:12px;color:#747b8b;line-height:1.6}
 @media(max-width:390px){.member-cards{grid-template-columns:1fr}}
+.learning-home-entry{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:14px 0 22px;padding:18px 20px;border:1px solid #dfe3e8;border-radius:18px;background:linear-gradient(135deg,#f7f8fa,#eef1f5);color:#181b20;text-decoration:none;box-shadow:0 7px 22px #00000008;transition:transform .18s,border-color .18s}
+.learning-home-entry:hover{transform:translateY(-2px);border-color:#a5adb9}
+.learning-home-entry:focus-visible{outline:3px solid #2468d5;outline-offset:3px}
+.learning-home-entry strong{display:block;font-size:18px;letter-spacing:-.3px}
+.learning-home-entry small{display:block;margin-top:5px;color:#596273;font-size:12px;line-height:1.5}
+.learning-home-entry .learning-arrow{flex:none;display:grid;place-items:center;width:38px;height:38px;border-radius:50%;background:#191c22;color:#fff;font-size:19px}
+@media(max-width:420px){.learning-home-entry{padding:16px}.learning-home-entry strong{font-size:16px}.learning-home-entry .learning-arrow{width:34px;height:34px}}
+@media(prefers-reduced-motion:reduce){.learning-home-entry{transition:none}.learning-home-entry:hover{transform:none}}
 </style><link rel="stylesheet" href="/static/fishyeah-ui.css?v=1"><link rel="stylesheet" href="/static/chat-focus.css?v=5"></head><body><main><h1>fishyeah Chat</h1>
+<a class="learning-home-entry" href="/learning" aria-label="进入 AI 伴学，雅思、英语四级和六级学习中心"><span><strong>✦ AI 伴学</strong><small>雅思 · 四级 · 六级｜每日计划与专项练习</small></span><span class="learning-arrow" aria-hidden="true">↗</span></a>
 <section id="auth"><h2 id="authTitle">登录</h2>
 <input id="phone" type="tel" inputmode="numeric" maxlength="11" autocomplete="tel" placeholder="中国大陆手机号">
 <input id="password" type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="密码（新账号至少10位，包含字母和数字）">
