@@ -48,7 +48,11 @@
     for(const [label,value] of [['学习天数',data.study_days],['已完成任务',data.completed_tasks],['最新诊断正确率',data.diagnostic_accuracy===null?'待诊断':data.diagnostic_accuracy+'%'],['到期复习',data.review.due]]){
       const card=document.createElement('div');text('strong',value,card);text('span',label,card);root.append(card);
     }
+    document.dispatchEvent(new CustomEvent('learning:overview',{detail:{overview:data,exam:exam.id}}));
     report=data.latest_diagnostic;
+    const history=el('diagnostic-history');history.replaceChildren();
+    if(!data.diagnostic_history.length)text('p','尚无诊断记录。',history);
+    data.diagnostic_history.slice().reverse().forEach(point=>text('p',`${new Date(point.created_at).toLocaleString('zh-CN')} · ${point.result.correct}/${point.result.total} 题正确 · ${point.result.accuracy}%`,history));
     const summary=el('diagnostic-summary');summary.replaceChildren();
     if(report){
       text('p',`本题组观察：${report.result.level} · ${report.result.correct}/${report.result.total} 题正确`,summary);
@@ -97,8 +101,8 @@
       label.append(input,document.createTextNode(task.title));card.append(label);
       text('small',`${task.minutes} 分钟 · ${task.reason}`,card);
       const go=text('button','去完成',card);go.type='button';go.onclick=()=>{
-        if(task.kind==='diagnostic'){el('diagnostic-details').open=true;el('diagnostic-details').scrollIntoView({block:'start'});}
-        else if(task.kind==='review'){el('review-heading').scrollIntoView({block:'start'});}
+        if(task.kind==='diagnostic'){document.dispatchEvent(new CustomEvent('learning:navigate',{detail:'diagnostic'}));el('diagnostic-details').open=true;el('diagnostic-details').scrollIntoView({block:'start'});}
+        else if(task.kind==='review'){document.dispatchEvent(new CustomEvent('learning:navigate',{detail:'reviews'}));el('review-heading').scrollIntoView({block:'start'});}
         else document.dispatchEvent(new CustomEvent('learning:practice-skill',{detail:{exam_type:exam.id,skill:task.skill}}));
       };root.append(card);
     });

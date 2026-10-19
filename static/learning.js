@@ -56,7 +56,8 @@
         button.onclick = () => { if (!busy) choose(exam); };
         el('exams').append(button);
       });
-      el('status').textContent = profiles.length ? `已保存 ${profiles.length} 份考试档案。选择考试查看或调整。` : '选择一场考试，建立你的第一份学习档案。';
+      choose(exams.find(exam => profiles.some(profile => profile.exam_type === exam.id)) || exams[0], false);
+      el('status').textContent = profiles.length ? `已保存 ${profiles.length} 份考试档案。可在「考试与专项练习」查看或调整。` : '可在「考试与专项练习」选择考试、建立学习档案。';
     } catch (error) {
       el('status').textContent = error.message;
       el('retry').hidden = false;
@@ -75,7 +76,7 @@
       profiles = profiles.filter(item => item.exam_type !== selected.id).concat(data.profile);
       choose(selected, false);
       el('save-status').textContent = '学习档案已保存。';
-      el('status').textContent = `已保存 ${profiles.length} 份考试档案。选择考试查看或调整。`;
+      el('status').textContent = `已保存 ${profiles.length} 份考试档案。可在「考试与专项练习」查看或调整。`;
     } catch (error) { el('save-status').textContent = error.message; }
     finally { busy = false; el('save').disabled = false; }
   });
