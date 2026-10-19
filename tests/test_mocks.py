@@ -83,7 +83,7 @@ def test_mock_catalog_scope_and_audio_privacy(user):
     c=client(user)
     for exam,sections in SECTIONS.items():
         templates=c.get('/api/learning/mock-catalog/'+exam).json['templates']
-        assert len(templates)==len(sections)*2
+        assert len(templates)==len(sections)*2+(3 if exam=='ielts' else 0)
         assert {t['section'] for t in templates}==set(sections)
     s=start(c,'ielts-listening-a-short-v1').json['session'];path='/api/learning/mocks/'+s['id']+'/audio'
     response=c.get(path,headers={'Range':'bytes=0-255'})

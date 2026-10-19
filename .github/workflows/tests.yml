@@ -19,3 +19,4 @@ jobs:
       - run: node --check static/learning-hub.js
       - run: node --check static/learning-mocks.js
       - run: node --check static/learning-navigation.js
+      - run: node --check static/learning-audio.js

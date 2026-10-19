@@ -8,6 +8,7 @@ from flask import current_app,jsonify,request,send_from_directory,session
 
 from . import accounting,config,mock_repository as repo
 from .mock_bank import BANK,NOTICE,public_template
+from . import ielts_audio
 
 
 def register_mocks(bp,connection,checked,payload,limit,rate_limit,ai_provider,model):
@@ -15,7 +16,7 @@ def register_mocks(bp,connection,checked,payload,limit,rate_limit,ai_provider,mo
     @checked
     def mock_catalog(exam):
         return jsonify(notice=NOTICE,templates=[dict(id=t['id'],section=t['section'],title=t['title'],form=t['form'],duration_seconds=t['duration_seconds'],
-            scope=t['scope'],question_count=len(t['questions']),has_audio=bool(t['audio_file'])) for t in BANK.values() if t['exam_type']==exam])
+            scope=t['scope'],question_count=len(t['questions']),has_audio=public_template(t)['has_audio'],audio_status=(public_template(t).get('audio') or {}).get('status')) for t in BANK.values() if t['exam_type']==exam])
 
     @bp.get('/api/learning/mocks')
     @checked
@@ -57,13 +58,26 @@ def register_mocks(bp,connection,checked,payload,limit,rate_limit,ai_provider,mo
     @checked
     def mock_submit(session_id):return save(session_id,'submit')
 
+    @bp.get('/learning/audio/ielts/<filename>')
+    def ielts_pilot_audio(filename):
+        # Public original media only: no session, database, quota or synthesis call.
+        asset=next((entry for entry in ielts_audio.assets().values() if entry['filename']==filename),None)
+        if asset is None:
+            return jsonify(error='固定 MP3 尚未接入或不可用'),404
+        response=send_from_directory(ielts_audio.ASSET_ROOT,filename,mimetype='audio/mpeg',conditional=True,max_age=31536000)
+        if response.status_code in (200,206,304):
+            response.headers['Cache-Control']='public, max-age=31536000, immutable'
+        return response
+
     @bp.get('/api/learning/mocks/<session_id>/audio')
     @checked
     def mock_audio(session_id):
         sid=str(UUID(session_id));data=repo.get(connection,session['user_id'],sid)
         if not data['template']['has_audio']:raise accounting.PracticeError('本分项没有音频',404)
         with connection() as conn:row=repo.fetch(conn,session['user_id'],sid)
-        return send_from_directory(Path(__file__).parent/'assets'/'mock_audio',row['snapshot']['audio_file'],mimetype='audio/mpeg',conditional=True)
+        filename=row['snapshot'].get('audio_file')
+        if not filename:raise accounting.PracticeError('本题固定 MP3 尚未接入，暂无原有音频可回退',404)
+        return send_from_directory(Path(__file__).parent/'assets'/'mock_audio',filename,mimetype='audio/mpeg',conditional=True)
 
     @bp.post('/api/learning/mocks/<session_id>/ai/<question_id>')
     @checked

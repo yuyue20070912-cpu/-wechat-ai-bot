@@ -72,10 +72,21 @@ def make_bank():
 
 BANK=make_bank()
 
+# Preserve existing A/B content and IDs; add three original listening-only pilot forms.
+from .ielts_audio import MATERIALS, descriptor as audio_descriptor
+for item in MATERIALS.values():
+    if item['template_id'] not in BANK:
+        BANK[item['template_id']]=dict(id=item['template_id'],version='short-v1',exam_type='ielts',section='listening',
+            form=item['form'],title=LABELS['listening']+' · '+item['title'],duration_seconds=DURATIONS['listening'],
+            scope='short_section',notice=NOTICE,material='',audio_file=None,transcript=item['transcript'],
+            audio_notice='原创 IELTS 风格材料，非官方录音；高质量 MP3 待接入。',questions=item['questions'])
+
 
 def public_template(template, finished=False):
     data={k:v for k,v in template.items() if k not in ('questions','audio_file','transcript')}
-    data['has_audio']=bool(template['audio_file'])
+    audio=audio_descriptor(template)
+    data['has_audio']=bool(template['audio_file']) or audio is not None
+    if audio is not None: data['audio']=audio
     data['questions']=[{k:v for k,v in q.items() if finished or k not in ('correct_index','explanation','reference')} for q in template['questions']]
     if finished:data['transcript']=template.get('transcript')
     return data

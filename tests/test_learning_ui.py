@@ -201,6 +201,7 @@ def test_learning_browser(user, ai, monkeypatch, width, height, color, engine):
             page.locator('#mock-template').select_option('cet4-listening-a-short-v1')
             page.locator('#mock-start').click()
             page.locator('#mock-material audio').wait_for()
+            page.get_by_role('button',name='播放听力',exact=True).click()
             page.wait_for_function('document.querySelector("#mock-material audio")?.readyState >= 1')
             assert page.locator('#mock-material audio').evaluate('(audio)=>audio.error===null')
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')

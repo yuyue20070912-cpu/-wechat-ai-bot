@@ -31,8 +31,8 @@
     const material=el('mock-material');material.replaceChildren();
     if(data.template.material)text('p',data.template.material,material);
     if(data.template.has_audio){
-      text('p',data.template.audio_notice,material).className='practice-note';
-      const audio=document.createElement('audio');audio.controls=true;audio.preload='metadata';audio.src=`/api/learning/mocks/${data.id}/audio`;audio.setAttribute('aria-label','原创听力样例');material.append(audio);
+      const info=data.template.audio||{status:'legacy',has_fallback:true,notice:data.template.audio_notice};
+      window.LearningAudio.mount(material,info,`/api/learning/mocks/${data.id}/audio`);
     }
     const root=el('mock-questions');root.replaceChildren();
     data.template.questions.forEach(q=>{
@@ -153,7 +153,7 @@
     try{
       const catalog=await api('mock-catalog/'+exam.id);if(version!==generation)return;
       const select=el('mock-template');select.replaceChildren();
-      catalog.templates.forEach(t=>{const option=text('option',`${t.title} · 题组 ${t.form.toUpperCase()} · ${t.duration_seconds/60} 分钟 · ${t.question_count} 题`,select);option.value=t.id;});
+      catalog.templates.forEach(t=>{const option=text('option',`${t.title} · 题组 ${t.form.toUpperCase()} · ${t.duration_seconds/60} 分钟 · ${t.question_count} 题${t.audio_status==='unavailable'?' · MP3 待接入':t.audio_status==='legacy'?' · 原有合成样例':t.audio_status==='ready'?' · 固定 MP3':''}`,select);option.value=t.id;});
       await loadHistory();
     }catch(error){status(error.message);}
   });

@@ -1,0 +1,247 @@
+{
+  "version": 1,
+  "locale": "en-GB",
+  "copyright": "Project-original IELTS-style practice texts; not official IELTS material.",
+  "materials": [
+    {
+      "id": "community-gardens-v1",
+      "template_id": "ielts-listening-a-short-v1",
+      "title": "Community garden workshop",
+      "form": "a",
+      "transcript": "Thank you for joining our workshop about community gardens. The original room is closed for repairs. We will meet in Room 205 of the community centre on Thursday at 2 pm. You do not need to bring any equipment. Please bring a notebook. The first activity will be a group discussion, followed by a short practical task. Registration closes on Tuesday. If you need to change your booking, contact the coordinator before Monday evening.",
+      "questions": [
+        {
+          "id": "l1",
+          "skill": "listening",
+          "prompt": "Where will the workshop take place?",
+          "options": [
+            "Room 205",
+            "The closed room",
+            "The railway station"
+          ],
+          "correct_index": 0,
+          "explanation": "地点已改为 Room 205。",
+          "kind": "objective"
+        },
+        {
+          "id": "l2",
+          "skill": "listening",
+          "prompt": "When will participants meet?",
+          "options": [
+            "Monday at 2 pm",
+            "Thursday at 2 pm",
+            "Tuesday at 2 pm"
+          ],
+          "correct_index": 1,
+          "explanation": "集合时间是 Thursday 2 pm，不要混淆报名截止日。",
+          "kind": "objective"
+        },
+        {
+          "id": "l3",
+          "skill": "listening",
+          "prompt": "What should participants bring?",
+          "options": [
+            "Equipment",
+            "A booking form",
+            "A notebook"
+          ],
+          "correct_index": 2,
+          "explanation": "材料由主办方提供，但参与者需要带笔记本。",
+          "kind": "objective"
+        }
+      ]
+    },
+    {
+      "id": "public-libraries-v1",
+      "template_id": "ielts-listening-b-short-v1",
+      "title": "Public library workshop",
+      "form": "b",
+      "transcript": "Thank you for joining our workshop about public libraries. The original room is closed for repairs. We will meet in Room 310 of the community centre on Friday at 10 am. You do not need to bring any equipment. Please bring a notebook. The first activity will be a group discussion, followed by a short practical task. Registration closes on Tuesday. If you need to change your booking, contact the coordinator before Monday evening.",
+      "questions": [
+        {
+          "id": "l1",
+          "skill": "listening",
+          "prompt": "Where will the workshop take place?",
+          "options": [
+            "Room 310",
+            "The closed room",
+            "The railway station"
+          ],
+          "correct_index": 0,
+          "explanation": "地点已改为 Room 310。",
+          "kind": "objective"
+        },
+        {
+          "id": "l2",
+          "skill": "listening",
+          "prompt": "When will participants meet?",
+          "options": [
+            "Monday at 10 am",
+            "Friday at 10 am",
+            "Tuesday at 10 am"
+          ],
+          "correct_index": 1,
+          "explanation": "集合时间是 Friday 10 am，不要混淆报名截止日。",
+          "kind": "objective"
+        },
+        {
+          "id": "l3",
+          "skill": "listening",
+          "prompt": "What should participants bring?",
+          "options": [
+            "Equipment",
+            "A booking form",
+            "A notebook"
+          ],
+          "correct_index": 2,
+          "explanation": "材料由主办方提供，但参与者需要带笔记本。",
+          "kind": "objective"
+        }
+      ]
+    },
+    {
+      "id": "museum-volunteers-v1",
+      "template_id": "ielts-listening-c-short-v1",
+      "title": "Museum volunteer induction",
+      "form": "c",
+      "transcript": "Good morning, and welcome to the museum volunteer programme. Your induction was originally planned for Saturday, but it will now take place on Sunday at half past nine. Please use the entrance beside the river, rather than the main doors, which will remain closed until ten. We will begin with a tour of the galleries. After a short break, you will practise explaining one object to a small group. You do not need to prepare a speech. Please bring some form of photo identification so that we can issue your volunteer pass. Lunch is provided, but let us know about any dietary requirements by Thursday. The session finishes at one o'clock.",
+      "questions": [
+        {
+          "id": "l1",
+          "skill": "listening",
+          "kind": "objective",
+          "prompt": "When does the induction begin?",
+          "options": [
+            "Saturday at 9:30",
+            "Sunday at 9:30",
+            "Sunday at 10:00"
+          ],
+          "correct_index": 1,
+          "explanation": "培训改为星期日九点半开始。"
+        },
+        {
+          "id": "l2",
+          "skill": "listening",
+          "kind": "objective",
+          "prompt": "Which entrance should volunteers use?",
+          "options": [
+            "The main doors",
+            "The staff car park",
+            "The entrance beside the river"
+          ],
+          "correct_index": 2,
+          "explanation": "请使用河边入口，正门十点才开放。"
+        },
+        {
+          "id": "l3",
+          "skill": "listening",
+          "kind": "objective",
+          "prompt": "What must volunteers bring?",
+          "options": [
+            "Photo identification",
+            "A prepared speech",
+            "Their own lunch"
+          ],
+          "correct_index": 0,
+          "explanation": "需要带带照片的身份证件以领取志愿者证。"
+        }
+      ]
+    },
+    {
+      "id": "campus-bicycles-v1",
+      "template_id": "ielts-listening-d-short-v1",
+      "title": "Campus bicycle hire",
+      "form": "d",
+      "transcript": "If you are new to the university, the campus bicycle scheme is a useful way to get around. Registration takes place in the transport office, next to the student union. Although you can read the terms online, you must collect your bicycle in person. The hire charge is twelve pounds a week. There is also a refundable deposit of forty pounds, which is returned when the bicycle and lock are brought back in good condition. A lock is included, but a helmet is not, so please bring your own. The office opens at eight on weekdays and closes at six. On Fridays, however, all returns must be completed by five because the staff attend a weekly meeting.",
+      "questions": [
+        {
+          "id": "l1",
+          "skill": "listening",
+          "kind": "objective",
+          "prompt": "Where do students register?",
+          "options": [
+            "At the library",
+            "In the transport office",
+            "Online only"
+          ],
+          "correct_index": 1,
+          "explanation": "登记地点是学生会旁的交通办公室。"
+        },
+        {
+          "id": "l2",
+          "skill": "listening",
+          "kind": "objective",
+          "prompt": "How much is the weekly hire charge?",
+          "options": [
+            "Forty pounds",
+            "Twelve pounds",
+            "Fifty-two pounds"
+          ],
+          "correct_index": 1,
+          "explanation": "每周租金为十二英镑，四十英镑是可退押金。"
+        },
+        {
+          "id": "l3",
+          "skill": "listening",
+          "kind": "objective",
+          "prompt": "By what time must bicycles be returned on Friday?",
+          "options": [
+            "Six o'clock",
+            "Eight o'clock",
+            "Five o'clock"
+          ],
+          "correct_index": 2,
+          "explanation": "星期五需在五点前归还。"
+        }
+      ]
+    },
+    {
+      "id": "coastal-fieldwork-v1",
+      "template_id": "ielts-listening-e-short-v1",
+      "title": "Coastal fieldwork briefing",
+      "form": "e",
+      "transcript": "Here are the final arrangements for next week's geography field trip. We will leave from the north gate of the college at a quarter to eight on Tuesday. The journey to the coast usually takes ninety minutes, but we have allowed two hours in case of traffic. Our first task is to record changes in the shape of the beach. We will work in pairs and compare measurements from three different locations. The college will provide measuring equipment and waterproof notebooks. You should bring a packed lunch and sturdy walking boots. Trainers are not suitable because some paths are uneven. If strong winds are forecast, we will postpone the trip until Thursday. Please check the course website at six on Monday evening for confirmation.",
+      "questions": [
+        {
+          "id": "l1",
+          "skill": "listening",
+          "kind": "objective",
+          "prompt": "What time will the group leave?",
+          "options": [
+            "7:45",
+            "8:15",
+            "9:30"
+          ],
+          "correct_index": 0,
+          "explanation": "星期二七点四十五从学院北门出发。"
+        },
+        {
+          "id": "l2",
+          "skill": "listening",
+          "kind": "objective",
+          "prompt": "What will students record first?",
+          "options": [
+            "The number of visitors",
+            "Changes in the shape of the beach",
+            "The temperature of the sea"
+          ],
+          "correct_index": 1,
+          "explanation": "首项任务是记录海滩形态的变化。"
+        },
+        {
+          "id": "l3",
+          "skill": "listening",
+          "kind": "objective",
+          "prompt": "What could cause the trip to be postponed?",
+          "options": [
+            "Uneven paths",
+            "Heavy traffic",
+            "Strong winds"
+          ],
+          "correct_index": 2,
+          "explanation": "预报有强风时会推迟至星期四。"
+        }
+      ]
+    }
+  ]
+}
