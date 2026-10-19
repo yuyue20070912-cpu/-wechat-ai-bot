@@ -166,3 +166,30 @@ body.dark #chatArea .chat-composer #sendBtn { background: #f5f6f8!important; col
     right: 7px!important;
   }
 }
+
+/* Fine-tune iPhone send arrow: 3px lower than the previous alignment. */
+#chatArea .chat-composer #sendBtn { top: 34px!important; }
+@media (max-width: 600px) {
+  #chatArea .chat-composer #sendBtn { top: 33px!important; }
+}
+
+/* Align the button to the input field's centerline, not to the padded composer.
+   Equal vertical center for the arrow circle and the text caret. */
+#chatArea .chat-composer {
+  padding-top: 0!important;
+  padding-bottom: 0!important;
+  margin-bottom: max(14px, env(safe-area-inset-bottom))!important;
+}
+#chatArea .chat-composer #sendBtn {
+  top: 50%!important;
+  transform: translateY(-50%)!important;
+}
+@media (max-width: 600px) {
+  #chatArea .chat-composer {
+    padding-top: 0!important;
+    padding-bottom: 0!important;
+  }
+  #chatArea .chat-composer #sendBtn {
+    top: 50%!important;
+  }
+}
