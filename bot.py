@@ -585,6 +585,9 @@ def home():
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>fishyeah Chat</title>
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f5f5f7">
+<script src="/static/chat-theme.js?v=1"></script>
 <link rel="apple-touch-icon" sizes="180x180" href="/app-icon">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="fishyeah Chat">
@@ -622,13 +625,13 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 .learning-home-entry .learning-arrow{flex:none;display:grid;place-items:center;width:38px;height:38px;border-radius:50%;background:#191c22;color:#fff;font-size:19px}
 @media(max-width:420px){.learning-home-entry{padding:16px}.learning-home-entry strong{font-size:16px}.learning-home-entry .learning-arrow{width:34px;height:34px}}
 @media(prefers-reduced-motion:reduce){.learning-home-entry{transition:none}.learning-home-entry:hover{transform:none}}
-</style><link rel="stylesheet" href="/static/fishyeah-ui.css?v=1"><link rel="stylesheet" href="/static/chat-focus.css?v=6"></head><body><main><h1>fishyeah Chat</h1>
+</style><link rel="stylesheet" href="/static/fishyeah-ui.css?v=2"><link rel="stylesheet" href="/static/chat-focus.css?v=7"><link rel="stylesheet" href="/static/chat-theme.css?v=1"></head><body><main><h1>fishyeah Chat</h1>
 <section id="auth"><h2 id="authTitle">登录</h2>
 <input id="phone" type="tel" inputmode="numeric" maxlength="11" autocomplete="tel" placeholder="中国大陆手机号">
 <input id="password" type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="密码（新账号至少10位，包含字母和数字）">
 <button id="loginBtn">登录</button><button id="registerBtn">注册新账号</button>
 <p style="font-size:13px;color:#666">当前不发送短信验证码，手机号未经验证；请勿使用他人的号码注册。</p></section>
-<section id="chatArea" class="hidden"><a class="learning-home-entry" href="/learning" aria-label="进入 AI 伴学学习中心"><span class="learning-symbol" aria-hidden="true">✦</span><span class="learning-copy"><strong>AI 伴学</strong><small>雅思 · 四级 · 六级｜每日计划 · 专项练习</small></span><span class="learning-arrow" aria-hidden="true">›</span></a><aside class="fish-side" id="fishSide"><div class="side-user">已登录：<span id="sideWho"></span></div><nav aria-label="学习导航"><a href="/learning" style="display:block;padding:14px 0;color:inherit;text-decoration:none;font-weight:600">✦ AI 伴学 →</a></nav><div id="sideContents"></div></aside><button class="fish-side-toggle" id="sideToggle" type="button" aria-expanded="false">☰ 菜单</button><p class="legacy-account">已登录：<span id="who"></span> <button id="logoutBtn">退出</button></p>
+<section id="chatArea" class="hidden"><a class="learning-home-entry" href="/learning" aria-label="进入 AI 伴学学习中心"><span class="learning-symbol" aria-hidden="true">✦</span><span class="learning-copy"><strong>AI 伴学</strong><small>雅思 · 四级 · 六级｜每日计划 · 专项练习</small></span><span class="learning-arrow" aria-hidden="true">›</span></a><aside class="fish-side" id="fishSide"><div class="side-user">已登录：<span id="sideWho"></span></div><nav aria-label="学习导航"><a href="/learning" style="display:block;padding:14px 0;color:inherit;text-decoration:none;font-weight:600">✦ AI 伴学 →</a></nav><details id="appearance"><summary><svg aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M12 3a9 9 0 0 1 0 18"/></svg>外观设置<span id="appearanceChoice">跟随系统</span></summary><fieldset id="themeOptions"><legend>主题</legend><label><input type="radio" name="chat-theme" value="system" checked>跟随系统</label><label><input type="radio" name="chat-theme" value="light">浅色模式</label><label><input type="radio" name="chat-theme" value="dark">深色模式</label></fieldset></details><div id="sideContents"></div></aside><button class="fish-side-toggle" id="sideToggle" type="button" aria-expanded="false">☰ 菜单</button><p class="legacy-account">已登录：<span id="who"></span> <button id="logoutBtn">退出</button></p>
 <details id="security"><summary>账号安全 · 修改密码</summary><input id="oldPassword" type="password" autocomplete="current-password" placeholder="当前密码"><input id="newPassword" type="password" autocomplete="new-password" placeholder="新密码（至少10位，包含不同类型字符）"><button id="changePasswordBtn">修改密码</button></details>
 <details id="membership"><summary>✦ fishyeah 会员中心</summary>
 <p class="member-intro">解锁更多对话额度 · 轻松使用 fishyeah Chat</p>
@@ -645,7 +648,7 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <div id="orderResult" aria-live="polite">订单创建后将在这里显示订单信息。</div><div id="qrPanel" class="hidden" style="text-align:center;margin:12px 0"><p id="qrTitle"></p><img id="paymentQR" alt="收款二维码" width="240" height="240" style="max-width:100%;image-rendering:pixelated;border-radius:12px"><p class="member-safe">请先核对金额。付款后填写支付时间和凭证信息，等待人工核实。</p></div><div id="paymentProof" class="hidden"><label for="payerNote">付款信息（付款时间、支付平台订单号等）</label><input id="payerNote" maxlength="160" placeholder="例：10月17日 20:30，支付订单号末6位123456"><button id="submitProofBtn">我已付款，提交核实信息</button></div>
 <p class="member-safe">当前使用个人收款码人工审核：请核对收款人及金额，付款后保存支付凭证；到账确认后才开通会员，不会自动扣费。</p>
 </details>
-<div class="ui-actions"><button id="themeBtn" type="button">◐ 切换主题</button><button id="newChatBtn" type="button">＋ 新对话</button></div><p id="quotaInfo">免费版每天可发送5条消息（UTC 00:00重置）</p><div id="chat"><div class="chat-row from-ai"><img class="chat-avatar" src="/app-icon" alt="fishyeah Chat"><div class="msg">你好，我是 fishyeah Chat。</div></div></div>
+<div class="ui-actions"><button id="newChatBtn" type="button">＋ 新对话</button></div><p id="quotaInfo">免费版每天可发送5条消息（UTC 00:00重置）</p><div id="chat"><div class="chat-row from-ai"><img class="chat-avatar" src="/app-icon" alt="fishyeah Chat"><div class="msg">你好，我是 fishyeah Chat。</div></div></div>
 <div class="chat-composer"><input id="message" aria-label="输入你的问题" placeholder="输入你的问题..."><button id="sendBtn" type="button" aria-label="发送消息" title="发送消息"><span aria-hidden="true">↑</span></button></div></section>
 <p id="notice" role="status"></p></main>
 <script src="/static/chat-stream.js"></script>
@@ -653,7 +656,6 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 const $=id=>document.getElementById(id);
 let activeOrderId=null;
 
-document.getElementById("themeBtn").onclick=()=>{document.body.classList.toggle("dark");};
 document.getElementById("newChatBtn").onclick=()=>{document.getElementById("chat").replaceChildren();const el=document.createElement("div");el.className="msg";el.textContent="✦ 你好，我是 fishyeah Chat。有什么可以帮你？";document.getElementById("chat").appendChild(el);};
 const side=document.getElementById("fishSide");const sideToggle=document.getElementById("sideToggle");sideToggle.onclick=()=>{const open=side.classList.toggle("open");sideToggle.setAttribute("aria-expanded",String(open));sideToggle.textContent=open?"✕ 关闭":"☰ 菜单";};["security","membership","quotaInfo","logoutBtn"].forEach(id=>document.getElementById("sideContents").appendChild(document.getElementById(id)));
 const notice=msg=>$("notice").textContent=msg;

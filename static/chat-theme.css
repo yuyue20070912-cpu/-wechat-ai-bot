@@ -1,0 +1,50 @@
+/* Chat colors share the learning center's neutral surfaces; layout stays in chat-focus.css. */
+:root[data-theme] body {
+  --bg:#f5f5f7; --panel:#fff; --text:#1d1d1f; --muted:#62626b;
+  --line:#dedee5; --soft:#f1f2f5; --accent:#173d80; --focus:#2468d5;
+  --ai-bubble:#f1f2f5; --ai-text:#1d1d1f; --button:#173d80; --button-text:#fff;
+  --tint:#e9f0ff; --tint-text:#173d80; --error-bg:#fff1f0; --error-text:#a12626;
+  background:var(--bg)!important; color:var(--text)!important;
+}
+:root[data-theme="dark"] body {
+  --bg:#141416; --panel:#1e1e21; --text:#f5f5f7; --muted:#b3b3be;
+  --line:#45454d; --soft:#2c2c32; --focus:#a6c9ff;
+  --ai-bubble:#303037; --ai-text:#f5f5f7;
+  --tint:#202e40; --tint-text:#a6c9ff; --error-bg:#442326; --error-text:#ffc0bc;
+}
+:root[data-theme] body h1 { background:var(--panel); }
+:root[data-theme] body input, :root[data-theme] body #membership select {
+  background:var(--soft); color:var(--text)!important; border-color:var(--line)!important;
+}
+:root[data-theme] body input::placeholder { color:var(--muted); opacity:1; }
+:root[data-theme] body button { background:var(--button)!important; color:var(--button-text)!important; }
+:root[data-theme] body .ui-actions button, :root[data-theme] body .fish-side-toggle,
+:root[data-theme] body #logoutBtn, :root[data-theme] body #ordersBtn {
+  background:var(--soft)!important; color:var(--text)!important;
+}
+:root[data-theme] body #chatArea .chat-composer #sendBtn { background:var(--button)!important; color:var(--button-text)!important; }
+:root[data-theme] body #chat .msg, :root[data-theme] body #chat .from-ai .msg {
+  background:var(--ai-bubble)!important; color:var(--ai-text)!important;
+}
+:root[data-theme] body #chat .from-ai .msg:before { border-right-color:var(--ai-bubble); }
+:root[data-theme] body #chat .from-user .msg { background:#95ec69!important; color:#141414!important; }
+:root[data-theme] body #chat .msg.error { background:var(--error-bg)!important; color:var(--error-text)!important; }
+:root[data-theme] body #chat .from-ai .msg.error:before { border-right-color:var(--error-bg); }
+:root[data-theme] body #notice { color:var(--error-text); }
+:root[data-theme] body #auth p, :root[data-theme] body .member-intro, :root[data-theme] body .member-safe { color:var(--muted)!important; }
+:root[data-theme] body #membership, :root[data-theme] body .member-card, :root[data-theme] body #orderResult {
+  background:var(--soft)!important; color:var(--text); border-color:var(--line);
+}
+:root[data-theme] body .member-card.featured { background:var(--button)!important; color:var(--button-text); }
+:root[data-theme] body #quotaInfo { background:var(--tint); color:var(--tint-text); }
+:root[data-theme] body #chatArea > .learning-home-entry .learning-symbol { background:var(--tint); color:var(--tint-text); }
+:root[data-theme] body :is(button, input, select, a, summary):focus-visible { outline:2px solid var(--focus); outline-offset:3px; }
+#appearance { margin:12px 0; border:1px solid var(--line); border-radius:15px; padding:12px 15px; }
+#appearance summary { display:flex; align-items:center; gap:8px; color:var(--text); font-size:13px; font-weight:600; cursor:pointer; }
+#appearance summary::-webkit-details-marker { display:none; }
+#appearance summary svg { flex:none; color:var(--muted); }
+#appearanceChoice { margin-left:auto; color:var(--muted); font-size:12px; font-weight:400; }
+#themeOptions { margin:12px 0 0; padding:0; border:0; min-width:0; }
+#themeOptions legend { color:var(--muted); font-size:12px; }
+#themeOptions label { display:flex; align-items:center; gap:10px; min-height:44px; padding:8px 0; font-size:14px; cursor:pointer; }
+#themeOptions input { width:18px; height:18px; flex:none; margin:0; padding:0!important; accent-color:var(--focus); }
