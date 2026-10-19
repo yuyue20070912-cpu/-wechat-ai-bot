@@ -1,4 +1,5 @@
 from decimal import Decimal, InvalidOperation
+from datetime import datetime
 from secrets import compare_digest, token_urlsafe
 
 from flask import Blueprint, current_app, jsonify, request, send_from_directory, session
@@ -36,7 +37,9 @@ def create_blueprint(connection, require_login, rate_limit, ai_provider, model):
     def profiles():
         session.setdefault('learning_csrf', token_urlsafe(32))
         try:
-            return jsonify(profiles=list_profiles(connection, session['user_id']),
+            archive = list_profiles(connection, session['user_id'])
+            latest = max(archive, key=lambda profile: (datetime.fromisoformat(profile['updated_at']), profile['exam_type']), default=None)
+            return jsonify(profiles=archive, active_exam_type=latest['exam_type'] if latest else None,
                            csrf_token=session['learning_csrf'])
         except Exception:
             return jsonify(error='学习档案暂不可用，请稍后重试'), 503

@@ -34,3 +34,12 @@ nav{margin-top:24px;display:grid;gap:8px}nav a{min-height:48px;display:flex;alig
 @media(max-width:720px){main{margin:0;padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}.section-title,.question-top{flex-wrap:wrap}.trend-row{grid-template-columns:80px minmax(20px,1fr) 42px;gap:6px}}
 @media(prefers-color-scheme:dark){:root{--accent:#a6c9ff;--muted:#b3b3be}.exam:nth-child(2){background:linear-gradient(140deg,var(--panel),#23392c)}.exam:nth-child(3){background:linear-gradient(140deg,var(--panel),#302641)}.metrics>div:nth-child(2){background:#23392c}.metrics>div:nth-child(3){background:#302641}.metrics>div:nth-child(4){background:#202e40}.exam .arrow{color:#a6c9ff}body button:disabled{background:#42424a!important;color:#d5d5de!important}#mock-reload{background:#362321;color:#ffb3ac;border-color:#ffb3ac}}
 .hub-panel fieldset label,.daily-task label,#mock-answer-form fieldset label{min-height:44px}
+
+/* Account onboarding and labelled navigation; retain the existing cards and controls. */
+#learning-drawer nav a{gap:12px;line-height:1.6}
+.nav-icon{display:block;width:20px;height:20px;flex:0 0 20px;color:var(--muted)}
+#learning-drawer nav a[aria-current=page]{color:#173D80;background:#eaf3ff}
+#learning-drawer nav a[aria-current=page] .nav-icon{color:#173D80}
+#learning-drawer nav a[aria-disabled=true]{color:var(--muted)}
+#view-exams .profile{margin-bottom:0}#profile-flow-note{max-width:720px}
+@media(prefers-color-scheme:dark){#learning-drawer nav a[aria-current=page]{background:#c7d9f5;color:#173D80}}

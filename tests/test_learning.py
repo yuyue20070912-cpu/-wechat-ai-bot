@@ -126,3 +126,148 @@ def test_concurrent_upsert(user):
 def test_migration_cli(user):
     result = bot.app.test_cli_runner().invoke(args=['learning-migrate'])
     assert result.exit_code == 0 and 'ready' in result.output
+
+
+def test_active_profile_is_last_successful_save_across_sessions(user):
+    c = client(user)
+    assert c.get('/api/learning/profiles').json['active_exam_type'] is None
+    h = headers(c)
+    for exam, score in [('ielts', 6.5), ('cet6', 600), ('cet4', 500), ('ielts', 7)]:
+        assert save(c, exam, score, headers=h).status_code == 200
+        # Independent cookie jar/device, same authenticated account.
+        archive = client(user).get('/api/learning/profiles').json
+        assert archive['active_exam_type'] == exam
+        assert next(p for p in archive['profiles'] if p['exam_type'] == exam)['target_score'] == score
+    assert len(archive['profiles']) == 3
+    assert save(c, 'cet6', 999, headers=h).status_code == 400
+    assert client(user).get('/api/learning/profiles').json['active_exam_type'] == 'ielts'
+    with bot.db_connection() as conn:
+        other = conn.execute("INSERT INTO users(phone,password_hash) VALUES ('13900000002','test') RETURNING id").fetchone()[0]
+    assert client(other).get('/api/learning/profiles').json['active_exam_type'] is None
+
+
+def test_legacy_profiles_need_no_new_schema_or_preference(user):
+    with bot.db_connection() as conn:
+        conn.execute("INSERT INTO learning_profiles(user_id,exam_type,target_score,current_level,updated_at) VALUES (%s,'ielts',6.5,'not_assessed',NOW()-INTERVAL '1 day'),(%s,'cet4',520,'advanced',NOW())", (user,user))
+    archive = client(user).get('/api/learning/profiles').json
+    assert archive['active_exam_type'] == 'cet4'
+    assert len(archive['profiles']) == 2
+    with bot.db_connection() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM learning_preferences WHERE user_id=%s',(user,)).fetchone()[0] == 0
+
+
+def test_goal_changes_preserve_diagnostic_tasks_reviews_and_exam_history(user):
+    from test_mocks import start, write, screening
+    c = client(user); h = headers(c)
+    assert save(c, headers=h).status_code == 200
+    assert screening(c).status_code == 200
+    plan = c.post('/api/learning/plans/ielts',json={},headers=h).json['plan']
+    task = plan['tasks'][0]
+    assert c.put(f'/api/learning/tasks/ielts/{plan["date"]}/{task["id"]}',
+        json=dict(completed=True,expected_version=task['version']),headers=h).status_code == 200
+    exam = start(c).json['session']
+    assert write(c,exam,{'r1':1},'submit').status_code == 200
+    before = c.get('/api/learning/overview/ielts').json['overview']
+    for exam_type, score in [('cet4',520),('cet6',600),('ielts',7)]:
+        assert save(c,exam_type,score,headers=h).status_code == 200
+    after = c.get('/api/learning/overview/ielts').json['overview']
+    for field in ('study_days','completed_tasks','diagnostic_accuracy','latest_diagnostic','diagnostic_history','review'):
+        assert after[field] == before[field]
+    restored = c.get('/api/learning/mocks/'+exam['id']).json['session']
+    assert restored['status'] == 'submitted' and restored['answers'] == {'r1':1}
+    assert restored['deadline'] == exam['deadline']
+    assert c.get('/api/learning/mocks?exam=ielts').json['history'][0]['id'] == exam['id']
+
+
+@pytest.mark.parametrize('order', [
+    [('ielts', 7), ('cet4', 520), ('cet6', 600)],
+    [('cet6', 600), ('ielts', 7), ('cet4', 520)],
+])
+def test_equal_clock_saves_restore_last_exam_after_real_login(user, monkeypatch, order):
+    from contextlib import contextmanager
+    from learning import repository
+    from werkzeug.security import generate_password_hash
+
+    # Freeze the database clock, not Python time: all three writes would otherwise
+    # have identical timestamps. Keep real PostgreSQL transactions and constraints.
+    @contextmanager
+    def frozen_connection():
+        with bot.db_connection() as conn:
+            class FrozenClock:
+                def execute(self, query, params=None):
+                    query = query.replace('NOW()', "TIMESTAMPTZ '2100-01-01 UTC'")
+                    query = query.replace('clock_timestamp()', "TIMESTAMPTZ '2100-01-01 UTC'")
+                    return conn.execute(query, params)
+            yield FrozenClock()
+
+    # Existing profiles share a legacy timestamp; a new save must break the tie.
+    with bot.db_connection() as conn:
+        for exam, score in [('ielts', 6.5), ('cet4', 500), ('cet6', 550)]:
+            conn.execute("INSERT INTO learning_profiles(user_id,exam_type,target_score,current_level,updated_at) VALUES (%s,%s,%s,'beginner',TIMESTAMPTZ '2100-01-01 UTC')",
+                         (user, exam, score))
+    with bot.db_connection() as conn:
+        conn.execute('TRUNCATE auth_rate_limits')
+    original_save = repository.save_profile
+    monkeypatch.setattr(routes, 'save_profile',
+        lambda connection, *args: original_save(frozen_connection, *args))
+    with bot.db_connection() as conn:
+        conn.execute('UPDATE users SET password_hash=%s WHERE id=%s',
+                     (generate_password_hash('Test-password-123'), user))
+    c = client(user); h = headers(c)
+    timestamps = []
+    for exam, score in order:
+        result = save(c, exam, score, headers=h)
+        assert result.status_code == 200
+        timestamps.append(result.json['profile']['updated_at'])
+        assert c.get('/api/learning/profiles').json['active_exam_type'] == exam
+        assert c.post('/auth/logout').status_code == 200
+        assert c.get('/api/learning/profiles').status_code == 401
+        assert c.post('/auth/login', json=dict(phone='13800000000', password='Test-password-123')).status_code == 200
+        assert c.get('/api/learning/profiles').json['active_exam_type'] == exam
+        h = headers(c)
+    assert timestamps == sorted(set(timestamps))
+    assert len(c.get('/api/learning/profiles').json['profiles']) == 3
+
+
+def test_overlapping_exam_saves_have_unique_commit_order(user):
+    from contextlib import contextmanager
+    from threading import Barrier
+    from learning.repository import save_profile
+    barrier = Barrier(3)
+
+    @contextmanager
+    def overlapping_connection():
+        with bot.db_connection() as conn:
+            # All transactions start before any save can acquire the user lock.
+            conn.execute('SELECT NOW()')
+            barrier.wait(timeout=10)
+            yield conn
+
+    def write(item):
+        exam, score = item
+        return save_profile(overlapping_connection, user, exam, score, 'advanced')
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        results = list(pool.map(write, [('ielts', 7), ('cet4', 520), ('cet6', 600)]))
+    assert len({p['updated_at'] for p in results}) == 3
+    last = max(results, key=lambda p: p['updated_at'])
+    assert client(user).get('/api/learning/profiles').json['active_exam_type'] == last['exam_type']
+
+
+def test_save_in_older_transaction_still_becomes_current(user):
+    from contextlib import contextmanager
+    from learning.repository import save_profile
+    committed = []
+
+    @contextmanager
+    def older_transaction():
+        with bot.db_connection() as conn:
+            started = conn.execute('SELECT NOW()').fetchone()[0]
+            first = save_profile(bot.db_connection, user, 'ielts', 7, 'advanced')
+            assert first['updated_at'] > started.isoformat()
+            committed.append(first)
+            yield conn
+
+    last = save_profile(older_transaction, user, 'cet6', 600, 'advanced')
+    assert last['updated_at'] > committed[0]['updated_at']
+    assert client(user).get('/api/learning/profiles').json['active_exam_type'] == 'cet6'

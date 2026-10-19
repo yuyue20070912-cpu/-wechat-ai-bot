@@ -5,9 +5,17 @@
   const toggle = document.getElementById('learning-menu');
   const main = document.getElementById('learning-main');
   const views = [...document.querySelectorAll('[data-learning-view]')];
-  let focusAfterClose = null;
+  let focusAfterClose = null, ready = false, hasProfile = false;
   function show(name, focus = true) {
-    if (!views.some(view => view.dataset.learningView === name)) name = 'overview';
+    if (!ready) return;
+    if (!views.some(view => view.dataset.learningView === name)) name = hasProfile ? 'overview' : 'exams';
+    if (document.body.dataset.profileBusy==='true' && name!=='exams') {
+      name='exams';document.getElementById('status').textContent='正在保存学习档案，请稍候。';
+    }
+    if (!hasProfile && name !== 'exams') {
+      name = 'exams'; document.getElementById('status').textContent='请先填写目标分数和当前水平并保存学习档案，再使用学习功能。';
+    }
+    history.replaceState(null, '', '#' + name);
     focusAfterClose = focus && drawer.open ? document.getElementById('title-' + name) : null;
     views.forEach(view => { view.hidden = view.dataset.learningView !== name; });
     drawer.querySelectorAll('[data-learning-go]').forEach(link => {
@@ -32,15 +40,30 @@
   document.addEventListener('click', event => {
     const link = event.target.closest('[data-learning-go]');
     if (!link) return;
-    event.preventDefault(); history.replaceState(null, '', '#' + link.dataset.learningGo); show(link.dataset.learningGo);
+    event.preventDefault(); show(link.dataset.learningGo);
   });
   document.addEventListener('learning:navigate', event => { show(event.detail); });
   document.addEventListener('learning:practice-skill', () => show('practice', false));
   document.addEventListener('learning:exam', event => {
     document.getElementById('current-exam').textContent = event.detail.exam.name;
   });
+  function links() {
+    drawer.querySelectorAll('[data-learning-go]').forEach(link=>{
+      if(!ready||(!hasProfile&&link.dataset.learningGo!=='exams'))link.setAttribute('aria-disabled','true');
+      else link.removeAttribute('aria-disabled');
+    });
+  }
+  document.addEventListener('learning:profile-ready',event=>{
+    ready=true; hasProfile=event.detail.hasProfile; links(); show(hasProfile?'overview':'exams',false);
+  });
+  document.addEventListener('learning:profile-saved',()=>{ready=hasProfile=true;links();show('overview');});
+  document.addEventListener('learning:profile-unavailable',()=>{
+    ready=hasProfile=false;views.forEach(view=>{view.hidden=true;});
+    document.getElementById('learning-hub').hidden=true;
+    drawer.querySelectorAll('[aria-current]').forEach(link=>link.removeAttribute('aria-current'));links();
+  });
   window.addEventListener('hashchange', () => show(location.hash.slice(1)));
-  show(location.hash.slice(1), false);
+  views.forEach(view=>{view.hidden=true;});links();
 })();
 
 /* Existing bounded APIs: report their actual coverage rather than invent totals. */
@@ -62,7 +85,7 @@
     records.sort((a,b)=>new Date(b.date)-new Date(a.date));
     const active = overview.active_dates.filter(day=>day>=first && day<=overview.today).length;
     add(summary,'p',active?`最近 28 天有 ${active} 个学习活动日。`:'最近 28 天暂无学习活动。');
-    add(summary,'p',records.length?`已返回记录中的学习主题：${[...new Set(records.map(r=>r.topic))].join('、')}。详见学习历史。`:'暂无可展示的诊断或专项做题明细。');
+    add(summary,'p',records.length?`已返回记录中的学习主题：${[...new Set(records.map(r=>r.topic))].join('、')}。详见学习记录。`:'暂无可展示的诊断或专项做题明细。');
     if(records.length){
       const practiceCount=records.filter(r=>r.detail==='已完成 1 次专项练习').length;
       const diagnostics=overview.diagnostic_history.filter(a=>inRange(a.created_at));
