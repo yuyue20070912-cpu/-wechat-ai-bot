@@ -46,6 +46,7 @@
   }
   async function refresh() {
     state = await api('/api/learning/practice');
+    document.dispatchEvent(new CustomEvent('learning:records',{detail:state.attempts}));
     const u = state.usage;
     el('practice-usage').textContent = `${state.enabled ? '' : 'AI 反馈暂未开放，可先浏览题目。'}今日调用剩余 ${u.calls_remaining}/${u.daily_call_limit} 次 · 共享消息剩余 ${u.message_remaining} 条 · 每日调用 UTC 00:00 重置`;
     if (!el('practice-skill').options.length) {

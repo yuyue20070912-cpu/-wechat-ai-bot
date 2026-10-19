@@ -10,74 +10,137 @@
   <script src="/static/learning-practice.js" defer></script>
   <script src="/static/learning-hub.js" defer></script>
   <script src="/static/learning-mocks.js" defer></script>
+<script src="/static/learning-navigation.js" defer></script>
 </head>
 <body>
-  <aside class="sidebar">
-    <a class="brand" href="/">fishyeah<span>Chat</span></a>
-    <nav aria-label="主导航"><a href="/">◌　返回聊天</a><a href="/learning" aria-current="page">✦　AI 伴学</a></nav>
-    <p class="side-note">每天一点，走得更远。<br>YOUR LEARNING COMPANION</p>
-  </aside>
-  <main>
-    <header><span>学习中心</span><span class="badge">✦ AI 伴学</span></header>
-    <section class="hero"><p class="eyebrow">A LITTLE EVERY DAY.</p><h1>你的下一步，<br><span>从这里开始。</span></h1><p>选一场考试，定一个目标。让每一次进步都有方向。</p></section>
-    <section aria-labelledby="exams-heading"><div class="section-title"><h2 id="exams-heading">选择你的考试</h2><span>为不同目标，找到适合的节奏</span></div><div id="exams" class="exam-grid" aria-busy="true"></div></section>
-    <p id="status" role="status" aria-live="polite">正在加载学习中心…</p>
+  <dialog id="learning-drawer" aria-labelledby="drawer-title"><h2 id="drawer-title">AI 伴学</h2>
+<button id="drawer-close" type="button" aria-label="关闭学习菜单">关闭 ×</button><nav aria-label="学习导航"><a href="#overview" data-learning-go="overview" aria-current="page">学习总览</a><a href="#tasks" data-learning-go="tasks">我的学习任务</a><a href="#practice" data-learning-go="practice">考试与专项练习</a><a href="#diagnostic" data-learning-go="diagnostic">英语水平诊断</a><a href="#reviews" data-learning-go="reviews">错题与到期复习</a><a href="#mocks" data-learning-go="mocks">模拟考试</a><a href="#history" data-learning-go="history">学习历史</a><a href="/">返回 fishyeah Chat</a></nav></dialog><main id="learning-main"><header><button id="learning-menu" type="button" aria-controls="learning-drawer" aria-expanded="false">☰ 学习菜单</button><span id="current-exam" class="badge">正在加载考试…</span></header><p id="status" role="status" aria-live="polite">正在加载学习中心…</p>
     <button id="retry" type="button" hidden>重新加载</button>
+    <section id="learning-hub" hidden=""><div class="section-title">
+<span>学习数据 · 当前考试</span><button id="hub-refresh" type="button">刷新数据</button>
+</div>
+<p id="hub-status" role="status" aria-live="polite"></p></section><section id="view-overview" data-learning-view="overview" aria-labelledby="title-overview"><h1 id="title-overview" tabindex="-1">学习总览</h1>
+<div id="learning-metrics" class="metrics"></div>
+      <a href="#reviews" data-learning-go="reviews" class="review-entry">查看错题与到期复习 →</a><section class="hub-panel" aria-labelledby="trends-heading"><h3 id="trends-heading">能力观察 · 保留每一小步</h3>
+<p id="trend-note" class="practice-note"></p>
+<div id="diagnostic-trend"></div>
+<div id="practice-trend"></div>
+<p class="practice-note">小样本变化仅供调整安排；不同筛查题组不直接计算能力增减。</p>
+<p class="practice-note">诊断仅为入门筛查，不是正式英语能力评级。</p></section>
+    <h2>最近 28 天的学习主题与做题情况</h2>
+<div id="recent-learning-summary"></div>
+<a href="#history" data-learning-go="history">查看学习历史 →</a></section><section id="view-tasks" data-learning-view="tasks" aria-labelledby="title-tasks" hidden=""><h1 id="title-tasks" tabindex="-1">我的学习任务</h1>
+<form id="timezone-form" class="timezone-form">
+<label for="learning-timezone">学习计划时区</label><input id="learning-timezone" list="timezone-options" value="Asia/Shanghai" required autocomplete="off"><datalist id="timezone-options"><option value="Asia/Shanghai"></option>
+<option value="Asia/Tokyo"></option>
+<option value="America/New_York"></option>
+<option value="Europe/London"></option>
+<option value="Australia/Sydney"></option>
+<option value="UTC"></option></datalist><button type="submit">保存时区</button><p class="practice-note">默认 Asia/Shanghai，可填写 IANA 时区名称。计划按本地日期恢复；切换时区不重置同日期已完成任务。消息与 AI 调用额度仍按 UTC 重置。</p>
+</form>
+      <section class="hub-panel" aria-labelledby="plan-heading"><p class="eyebrow">A PLAN FOR TODAY</p>
+<h3 id="plan-heading">今日学习计划</h3>
+<p class="practice-note">建议先保存考试目标并完成入门筛查。计划结合自评、筛查、AI 练习弱项与到期复习，在服务器按用户时区保存当天快照。</p>
+<button id="create-plan" type="button">生成 / 恢复今日计划</button><p id="plan-date"></p>
+<div id="daily-tasks"></div></section>
+      </section><section id="view-practice" data-learning-view="practice" aria-labelledby="title-practice" hidden=""><h1 id="title-practice" tabindex="-1">考试与专项练习</h1>
+<section aria-labelledby="exams-heading"><div class="section-title">
+<h2 id="exams-heading">选择你的考试</h2>
+<span>为不同目标，找到适合的节奏</span>
+</div>
+<div id="exams" class="exam-grid" aria-busy="true"></div></section>
     <section id="profile-section" class="profile" aria-labelledby="profile-heading" hidden>
-      <div class="profile-intro"><p class="eyebrow">YOUR LEARNING PROFILE</p><h2 id="profile-heading" tabindex="-1">我的学习档案</h2><p id="profile-description"></p><p id="saved-at"></p></div>
+      <div class="profile-intro">
+<p class="eyebrow">YOUR LEARNING PROFILE</p>
+<h2 id="profile-heading" tabindex="-1">我的学习档案</h2>
+<p id="profile-description"></p>
+<p id="saved-at"></p>
+</div>
       <form id="profile-form">
         <label for="target-score">目标分数</label><input id="target-score" name="target_score" type="number" required inputmode="decimal" aria-describedby="score-help"><small id="score-help"></small>
         <label for="current-level">当前水平 <span>自我评估</span></label><select id="current-level" name="current_level"></select>
         <button id="save" type="submit">保存学习档案 <span>↗</span></button><p id="save-status" role="status" aria-live="polite"></p>
       </form>
     </section>
-    <section id="learning-hub" hidden aria-labelledby="hub-heading">
-      <div class="section-title"><h2 id="hub-heading">让进步，看得见。</h2><button id="hub-refresh" type="button">刷新数据</button></div>
-      <p id="hub-status" role="status" aria-live="polite"></p>
-      <form id="timezone-form" class="timezone-form"><label for="learning-timezone">学习计划时区</label><input id="learning-timezone" list="timezone-options" value="Asia/Shanghai" required autocomplete="off"><datalist id="timezone-options"><option value="Asia/Shanghai"><option value="Asia/Tokyo"><option value="America/New_York"><option value="Europe/London"><option value="Australia/Sydney"><option value="UTC"></datalist><button type="submit">保存时区</button><p class="practice-note">默认 Asia/Shanghai，可填写 IANA 时区名称。计划按本地日期恢复；切换时区不重置同日期已完成任务。消息与 AI 调用额度仍按 UTC 重置。</p></form>
-      <div id="learning-metrics" class="metrics"></div>
-      <p class="practice-note">正确率仅指最近一次六题客观诊断。AI 参考分、客观题与自报任务分开记录，不代表官方考试成绩。</p>
-      <div class="hub-grid">
-        <section class="hub-panel" aria-labelledby="diagnostic-heading"><p class="eyebrow">A SMALL STARTING-POINT SCREEN</p><h3 id="diagnostic-heading">六题轮换入门筛查</h3><p class="practice-note">每场考试三组轮换原创文字题，不能代表完整英语水平。口语与听力题仅检查文字基础，不测发音或听辨能力。</p><p id="screening-group" class="badge"></p>
-          <div id="diagnostic-summary"></div>
-          <details id="diagnostic-details"><summary>开始 / 重做六题诊断</summary><form id="diagnostic-form"><div id="diagnostic-questions"></div><button type="submit" id="diagnostic-submit">提交诊断 · 不消耗 AI 额度</button></form></details>
-          <button id="diagnostic-ai" type="button" disabled>可选 AI 解读 · 默认关闭</button><p class="practice-note">仅在获准启用后可用；主动点击才调用 AI，成功消耗 1 条消息额度，并计入原有每日调用上限。每份诊断最多调用一次，失败也不会自动重试。</p><div id="diagnostic-ai-result" aria-live="polite"></div>
-        </section>
-        <section class="hub-panel" aria-labelledby="plan-heading"><p class="eyebrow">A PLAN FOR TODAY</p><h3 id="plan-heading">今日学习计划</h3><p class="practice-note">建议先保存考试目标并完成入门筛查。计划结合自评、筛查、AI 练习弱项与到期复习，在服务器按用户时区保存当天快照。</p><button id="create-plan" type="button">生成 / 恢复今日计划</button><p id="plan-date"></p><div id="daily-tasks"></div></section>
-      </div>
-      <section class="hub-panel" aria-labelledby="review-heading"><div class="section-title"><h3 id="review-heading">智能错题本与间隔复习</h3><button id="review-sync" type="button">导入已有 AI 待巩固题</button></div><p class="practice-note">诊断错题自动保存；AI 练习低于 70 参考分自动加入，也可手动收藏。客观题自动判分，开放表达由你自评，不会为复习额外调用 AI。</p><p id="review-count"></p><div id="review-items"></div><div class="review-pagination"><button id="review-prev" type="button">上一页</button><button id="review-next" type="button">下一页</button></div></section>
-      <section class="hub-panel" aria-labelledby="trends-heading"><h3 id="trends-heading">能力观察 · 保留每一小步</h3><p id="trend-note" class="practice-note"></p><div id="diagnostic-trend"></div><div id="practice-trend"></div><h4>最近 28 天的学习足迹（用户时区）</h4><div id="activity-days" class="activity-days"></div><p class="practice-note">小样本变化仅供调整安排；不同筛查题组不直接计算能力增减。</p></section>
-    </section>
-    <section id="mock-center" class="hub-panel" aria-labelledby="mock-heading" hidden>
-      <p class="eyebrow">A FOCUSED EXAM REHEARSAL</p><h2 id="mock-heading">分项短模考</h2><p class="practice-note">原创缩减题量，非完整考试、非官方真题，不生成官方总分。听力提供合成音频；口语仅为文字模拟。</p>
-      <label for="mock-template">选择分项与题组</label><select id="mock-template"></select><button id="mock-start" type="button">开始计时模考</button><button id="mock-resume" type="button" hidden>恢复进行中的模考</button>
-      <p id="mock-status" role="status" aria-live="polite"></p>
-      <section id="mock-active" hidden><div class="section-title"><h3 id="mock-title"></h3><strong id="mock-clock" role="timer" aria-label="剩余时间"></strong></div><p id="mock-save-policy" class="practice-note"></p><div id="mock-material"></div><form id="mock-answer-form"><div id="mock-questions"></div><button id="mock-submit" type="submit">交卷并查看报告</button></form><button id="mock-retry" type="button">重试同步答案</button><button id="mock-reload" type="button">恢复服务器状态（丢弃本页未同步草稿）</button><p class="practice-note">输入后自动同步。断线草稿仅暂存在本标签页，并按账户隔离；关闭标签页或清理浏览器可能丢失未同步内容。服务器倒计时不会因离线或刷新暂停，到时只计已同步答案。</p></section>
-      <section id="mock-report" hidden aria-labelledby="mock-report-heading"><h3 id="mock-report-heading" tabindex="-1">模考学习报告</h3><div id="mock-report-content"></div></section>
-      <details id="mock-history"><summary>模考历史与同题组对比</summary><button id="mock-history-refresh" type="button">刷新模考记录</button><div id="mock-history-content"></div><button id="mock-history-prev" type="button">上一页</button><button id="mock-history-next" type="button">下一页</button></details>
-    </section>
     <section id="practice-section" class="practice" aria-labelledby="practice-heading" hidden>
-      <div class="section-title"><h2 id="practice-heading">文字专项练习</h2><span>原创小题 · 专注每一次表达</span></div>
+      <div class="section-title">
+<h2 id="practice-heading">文字专项练习</h2>
+<span>原创小题 · 专注每一次表达</span>
+</div>
       <p class="practice-note">口语先练文字表达，听力先做文本理解。当前不录音、不播放音频，也不评价发音或听辨能力。</p>
       <p id="practice-usage" role="status"></p>
       <label for="practice-skill">选择训练</label><select id="practice-skill"></select>
       <p id="practice-status" role="status" aria-live="polite"></p>
       <div id="question-panel" hidden>
-        <div class="question-top"><h3 id="question-title"></h3><button id="next-question" type="button">换一道</button></div>
+        <div class="question-top">
+<h3 id="question-title"></h3>
+<button id="next-question" type="button">换一道</button>
+</div>
         <span id="supplemental" class="badge" hidden>拓展训练 · 非本考试笔试分项</span>
         <p id="question-guidance" class="practice-note"></p>
         <details id="question-material"><summary id="material-label">阅读材料</summary><p id="material-text" lang="en"></p></details>
         <p id="question-prompt" lang="en"></p>
-        <form id="answer-form"><label for="practice-answer">我的答案</label><textarea id="practice-answer" rows="8" maxlength="4000" required placeholder="用英文写下你的答案…" aria-describedby="answer-help" spellcheck="true"></textarea>
+        <form id="answer-form">
+<label for="practice-answer">我的答案</label><textarea id="practice-answer" rows="8" maxlength="4000" required placeholder="用英文写下你的答案…" aria-describedby="answer-help" spellcheck="true"></textarea>
           <p id="answer-help" class="practice-note">最多 4000 字。点击提交后，答案将交给 AI 分析；成功反馈消耗 1 条现有聊天/会员消息额度。失败退还消息额度，AI 调用次数仍计入当日上限。</p>
           <button id="analyze-answer" type="submit">提交并获取 AI 反馈</button>
         </form>
       </div>
-      <section id="feedback" class="feedback" aria-labelledby="feedback-heading" hidden><h3 id="feedback-heading" tabindex="-1">AI 学习反馈</h3><div id="feedback-content"></div></section>
+      <section id="feedback" class="feedback" aria-labelledby="feedback-heading" hidden><h3 id="feedback-heading" tabindex="-1">AI 学习反馈</h3>
+<div id="feedback-content"></div></section>
       <details class="history"><summary>最近的练习记录（最多 20 条）</summary><button id="refresh-practice" type="button">刷新状态与记录</button><div id="practice-history"></div></details>
     </section>
-    <section class="next"><span class="spark">✧</span><div><h2>每一次练习，都有下一步。</h2><p>从入门筛查到分项短模考，让每一步都有反馈。完整考试和语音口语评估仍待后续阶段。</p><span class="badge">持续完善</span></div></section>
-    <footer>fishyeah Chat · 陪你把英语变成自己的能力</footer>
-  </main>
+    </section><section id="view-diagnostic" data-learning-view="diagnostic" aria-labelledby="title-diagnostic" hidden=""><h1 id="title-diagnostic" tabindex="-1">英语水平诊断</h1>
+<section class="hub-panel" aria-labelledby="diagnostic-heading"><p class="eyebrow">A SMALL STARTING-POINT SCREEN</p>
+<h3 id="diagnostic-heading">六题轮换入门筛查</h3>
+<p class="practice-note">每场考试三组轮换原创文字题，不能代表完整英语水平。口语与听力题仅检查文字基础，不测发音或听辨能力。</p>
+<p id="screening-group" class="badge"></p>
+          <div id="diagnostic-summary"></div>
+          <details id="diagnostic-details"><summary>开始 / 重做六题诊断</summary><form id="diagnostic-form">
+<div id="diagnostic-questions"></div>
+<button type="submit" id="diagnostic-submit">提交诊断 · 不消耗 AI 额度</button>
+</form></details>
+          <button id="diagnostic-ai" type="button" disabled>可选 AI 解读 · 默认关闭</button><p class="practice-note">仅在获准启用后可用；主动点击才调用 AI，成功消耗 1 条消息额度，并计入原有每日调用上限。每份诊断最多调用一次，失败也不会自动重试。</p>
+<div id="diagnostic-ai-result" aria-live="polite"></div>
+        </section>
+        <h2>历史诊断结果（最近 12 次）</h2>
+<div id="diagnostic-history"></div></section><section id="view-reviews" data-learning-view="reviews" aria-labelledby="title-reviews" hidden=""><h1 id="title-reviews" tabindex="-1">错题与到期复习</h1>
+<section class="hub-panel" aria-labelledby="review-heading"><div class="section-title">
+<h3 id="review-heading">智能错题本与间隔复习</h3>
+<button id="review-sync" type="button">导入已有 AI 待巩固题</button>
+</div>
+<p class="practice-note">诊断错题自动保存；AI 练习低于 70 参考分自动加入，也可手动收藏。客观题自动判分，开放表达由你自评，不会为复习额外调用 AI。</p>
+<p id="review-count"></p>
+<div id="review-items"></div>
+<div class="review-pagination">
+<button id="review-prev" type="button">上一页</button><button id="review-next" type="button">下一页</button>
+</div></section>
+      </section><section id="view-mocks" data-learning-view="mocks" aria-labelledby="title-mocks" hidden=""><h1 id="title-mocks" tabindex="-1">模拟考试</h1>
+<section id="mock-center" class="hub-panel" aria-labelledby="mock-heading" hidden>
+      <p class="eyebrow">A FOCUSED EXAM REHEARSAL</p>
+<h2 id="mock-heading">分项短模考</h2>
+<p class="practice-note">原创缩减题量，非完整考试、非官方真题，不生成官方总分。听力提供合成音频；口语仅为文字模拟。</p>
+      <label for="mock-template">选择分项与题组</label><select id="mock-template"></select><button id="mock-start" type="button">开始计时模考</button><button id="mock-resume" type="button" hidden>恢复进行中的模考</button>
+      <p id="mock-status" role="status" aria-live="polite"></p>
+      <section id="mock-active" hidden><div class="section-title">
+<h3 id="mock-title"></h3>
+<strong id="mock-clock" role="timer" aria-label="剩余时间"></strong>
+</div>
+<p id="mock-save-policy" class="practice-note"></p>
+<div id="mock-material"></div>
+<form id="mock-answer-form">
+<div id="mock-questions"></div>
+<button id="mock-submit" type="submit">交卷并查看报告</button>
+</form>
+<button id="mock-retry" type="button">重试同步答案</button><button id="mock-reload" type="button">恢复服务器状态（丢弃本页未同步草稿）</button><p class="practice-note">输入后自动同步。断线草稿仅暂存在本标签页，并按账户隔离；关闭标签页或清理浏览器可能丢失未同步内容。服务器倒计时不会因离线或刷新暂停，到时只计已同步答案。</p></section>
+      <section id="mock-report" hidden aria-labelledby="mock-report-heading"><h3 id="mock-report-heading" tabindex="-1">模考学习报告</h3>
+<div id="mock-report-content"></div></section>
+      <details id="mock-history"><summary>模考历史与同题组对比</summary><button id="mock-history-refresh" type="button">刷新模考记录</button><div id="mock-history-content"></div>
+<button id="mock-history-prev" type="button">上一页</button><button id="mock-history-next" type="button">下一页</button></details>
+    </section>
+    </section><section id="view-history" data-learning-view="history" aria-labelledby="title-history" hidden=""><h1 id="title-history" tabindex="-1">学习历史</h1>
+<p class="practice-note">活动日历按用户时区展示真实学习活动。主题明细来自现有接口的最近 20 条练习记录与最近 12 次诊断，仅展示其中 28 天内、当前考试的记录；不是完整做题总量。</p>
+<div id="activity-days" class="activity-days"></div>
+<div id="learning-topics"></div></section><footer>fishyeah Chat · 每天一点，走得更远。</footer></main>
 </body>
 </html>
