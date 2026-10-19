@@ -20,3 +20,4 @@ jobs:
       - run: node --check static/learning-mocks.js
       - run: node --check static/learning-navigation.js
       - run: node --check static/learning.js
+      - run: node --check static/chat-theme.js
