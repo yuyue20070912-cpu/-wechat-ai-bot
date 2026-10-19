@@ -4,6 +4,12 @@
   const el=id=>document.getElementById(id), text=(tag,value,root)=>{const n=document.createElement(tag);n.textContent=value;root.append(n);return n;};
   let exam=null,csrf='',scope='',current=null,activeId=null,aiEnabled=false,historyOffset=0,generation=0;
   let dirty={},pending=null,flight=null,conflict=false,clockEnd=0,expiredRequested=false,debounce=null,starting=null;
+  let leaving=false;
+  const reads=new Set();
+  window.addEventListener('pagehide',()=>{
+    leaving=true;
+    reads.forEach(controller=>controller.abort());
+  });
   const uuid=()=>{const b=crypto.getRandomValues(new Uint8Array(16));b[6]=(b[6]&15)|64;b[8]=(b[8]&63)|128;const h=Array.from(b,x=>x.toString(16).padStart(2,'0')).join('');return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;};
   const status=message=>{el('mock-status').textContent=message;};
   const cacheKey=()=>scope&&current?`fishyeah-mock:${scope}:${current.id}`:null;
@@ -11,16 +17,19 @@
   function clearCache(){try{const key=cacheKey();if(key)sessionStorage.removeItem(key);}catch(_){} }
   function busy(value){document.body.dataset.mockBusy=String(value);document.querySelectorAll('.exam').forEach(button=>{button.disabled=value||document.body.dataset.hubBusy==='true'||document.body.dataset.practiceBusy==='true';});}
   async function api(path,method='GET',body,timeout=10000){
+    if(leaving)throw new DOMException('Page is leaving','AbortError');
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeout);
+    if(method==='GET')reads.add(controller);
     try{
       const response=await fetch('/api/learning/'+path,{method,credentials:'same-origin',cache:'no-store',signal:controller.signal,
         headers:method==='GET'?{}:{'Content-Type':'application/json','X-Learning-CSRF':csrf},body:body===undefined?undefined:JSON.stringify(body)});
       const value=await response.json().catch(()=>({}));
+      if(leaving)throw new DOMException('Page is leaving','AbortError');
       if(!response.ok){
         if(response.status===401){clearCache();el('mock-active').hidden=true;el('mock-report').hidden=true;}
         const error=Error(response.status===401?'请重新登录后恢复模考。':value.error||'模考服务暂不可用。');error.status=response.status;throw error;
       }return value;
-    }finally{clearTimeout(timer);}
+    }finally{clearTimeout(timer);reads.delete(controller);}
   }
   function setClock(data){clockEnd=performance.now()+data.remaining_seconds*1000;expiredRequested=false;tick();}
   function draftValue(q){return Object.prototype.hasOwnProperty.call(dirty,q.id)?dirty[q.id]:current.answers[q.id];}
@@ -126,7 +135,7 @@
     el('mock-clock').textContent=`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`;
     if(seconds===0){
       el('mock-questions').querySelectorAll('input,textarea').forEach(input=>{input.disabled=true;});el('mock-submit').disabled=true;
-      if(!expiredRequested&&!flight){expiredRequested=true;open(current.id,false).then(()=>{status('计时已结束，只统计已同步答案。');loadHistory();}).catch(()=>status('计时已结束，待联网后恢复服务器报告；草稿不会延长考试时间。'));}
+      if(!expiredRequested&&!flight){expiredRequested=true;open(current.id,false).then(()=>{status('计时已结束，只统计已同步答案。');return loadHistory();}).catch(()=>status('计时已结束，待联网后恢复服务器报告；草稿不会延长考试时间。'));}
     }
   }
   setInterval(tick,250);

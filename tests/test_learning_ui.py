@@ -3,6 +3,8 @@ import shutil
 import os
 import json
 import re
+from time import monotonic
+from collections import deque
 from pathlib import Path
 from threading import Thread
 
@@ -49,7 +51,14 @@ def test_learning_browser(user, ai, monkeypatch, width, height, color, engine):
             context.add_cookies([{'name': 'session', 'value': c.get_cookie('session').value, 'url': origin}])
             page = context.new_page()
             errors = []
-            page.on('pageerror', lambda error: errors.append(str(error)))
+            network = deque(maxlen=250)
+            def record(kind, url, detail=None):
+                network.append((round(monotonic(), 3), kind, url, detail))
+            page.on('request', lambda r: record('request', r.url))
+            page.on('response', lambda r: record('response', r.url, r.status))
+            page.on('requestfailed', lambda r: record('failed', r.url, r.failure))
+            page.on('framenavigated', lambda f: record('navigation', f.url))
+            page.on('pageerror', lambda error: errors.append(dict(time=round(monotonic(), 3), message=error.message, stack=error.stack, network=list(network))))
             def navigate(name):
                 page.locator('#learning-menu').click()
                 page.locator('#learning-drawer [data-learning-go="'+name+'"]').click()
@@ -230,7 +239,7 @@ def test_learning_browser(user, ai, monkeypatch, width, height, color, engine):
             playwright.expect(page.locator('#diagnostic-ai-result')).to_contain_text('AI 学习建议')
             assert page.locator('#diagnostic-ai').is_disabled()
             assert len(ai.calls) == 2
-            assert not errors
+            assert not errors, dict(errors=errors, network=list(network))
             context.close()
             browser.close()
     finally:

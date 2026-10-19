@@ -4,6 +4,12 @@
   const el = id => document.getElementById(id);
   let exam = null, csrf = '', state = null, questions = [], index = 0;
   let busy = false, generation = 0, pending = null;
+  let leaving = false;
+  const reads = new Set();
+  window.addEventListener('pagehide', () => {
+    leaving = true;
+    reads.forEach(controller => controller.abort());
+  });
   function uuid() {
     // crypto.randomUUID is absent in older Safari; getRandomValues works there.
     const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -12,10 +18,18 @@
     return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
   }
   async function api(path, options = {}) {
-    const response = await fetch(path, {credentials: 'same-origin', cache: 'no-store', ...options});
-    const value = await response.json().catch(() => ({}));
-    if (!response.ok) throw Error(response.status === 401 ? '登录已失效，请返回聊天页面登录。' : value.error || '服务暂不可用，请重试。');
-    return value;
+    // A completed startup read must not launch its next request from an old document.
+    if (leaving) throw new DOMException('Page is leaving', 'AbortError');
+    const controller = (options.method || 'GET') === 'GET' ? new AbortController() : null;
+    if (controller) reads.add(controller);
+    try {
+      const response = await fetch(path, {credentials: 'same-origin', cache: 'no-store', ...options,
+        ...(controller ? {signal:controller.signal} : {})});
+      const value = await response.json().catch(() => ({}));
+      if (leaving) throw new DOMException('Page is leaving', 'AbortError');
+      if (!response.ok) throw Error(response.status === 401 ? '登录已失效，请返回聊天页面登录。' : value.error || '服务暂不可用，请重试。');
+      return value;
+    } finally { if (controller) reads.delete(controller); }
   }
   function text(tag, value, parent) {
     const node = document.createElement(tag); node.textContent = value; parent.append(node); return node;
