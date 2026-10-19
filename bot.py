@@ -647,7 +647,7 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <p class="member-safe">当前使用个人收款码人工审核：请核对收款人及金额，付款后保存支付凭证；到账确认后才开通会员，不会自动扣费。</p>
 </details>
 <div class="ui-actions"><button id="themeBtn" type="button">◐ 切换主题</button><button id="newChatBtn" type="button">＋ 新对话</button></div><p id="quotaInfo">免费版每天可发送5条消息（UTC 00:00重置）</p><div id="chat"><div class="chat-row from-ai"><img class="chat-avatar" src="/app-icon" alt="fishyeah Chat"><div class="msg">你好，我是 fishyeah Chat。</div></div></div>
-<input id="message" placeholder="输入你的问题..."><button id="sendBtn">发送</button></section>
+<div class="chat-composer"><input id="message" aria-label="输入你的问题" placeholder="输入你的问题..."><button id="sendBtn" type="button">发送</button></div></section>
 <p id="notice" role="status"></p></main>
 <script src="/static/chat-stream.js"></script>
 <script>
