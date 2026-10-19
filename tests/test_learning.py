@@ -126,3 +126,54 @@ def test_concurrent_upsert(user):
 def test_migration_cli(user):
     result = bot.app.test_cli_runner().invoke(args=['learning-migrate'])
     assert result.exit_code == 0 and 'ready' in result.output
+
+
+def test_active_profile_is_last_successful_save_across_sessions(user):
+    c = client(user)
+    assert c.get('/api/learning/profiles').json['active_exam_type'] is None
+    h = headers(c)
+    for exam, score in [('ielts', 6.5), ('cet6', 600), ('cet4', 500), ('ielts', 7)]:
+        assert save(c, exam, score, headers=h).status_code == 200
+        # Independent cookie jar/device, same authenticated account.
+        archive = client(user).get('/api/learning/profiles').json
+        assert archive['active_exam_type'] == exam
+        assert next(p for p in archive['profiles'] if p['exam_type'] == exam)['target_score'] == score
+    assert len(archive['profiles']) == 3
+    assert save(c, 'cet6', 999, headers=h).status_code == 400
+    assert client(user).get('/api/learning/profiles').json['active_exam_type'] == 'ielts'
+    with bot.db_connection() as conn:
+        other = conn.execute("INSERT INTO users(phone,password_hash) VALUES ('13900000002','test') RETURNING id").fetchone()[0]
+    assert client(other).get('/api/learning/profiles').json['active_exam_type'] is None
+
+
+def test_legacy_profiles_need_no_new_schema_or_preference(user):
+    with bot.db_connection() as conn:
+        conn.execute("INSERT INTO learning_profiles(user_id,exam_type,target_score,current_level,updated_at) VALUES (%s,'ielts',6.5,'not_assessed',NOW()-INTERVAL '1 day'),(%s,'cet4',520,'advanced',NOW())", (user,user))
+    archive = client(user).get('/api/learning/profiles').json
+    assert archive['active_exam_type'] == 'cet4'
+    assert len(archive['profiles']) == 2
+    with bot.db_connection() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM learning_preferences WHERE user_id=%s',(user,)).fetchone()[0] == 0
+
+
+def test_goal_changes_preserve_diagnostic_tasks_reviews_and_exam_history(user):
+    from test_mocks import start, write, screening
+    c = client(user); h = headers(c)
+    assert save(c, headers=h).status_code == 200
+    assert screening(c).status_code == 200
+    plan = c.post('/api/learning/plans/ielts',json={},headers=h).json['plan']
+    task = plan['tasks'][0]
+    assert c.put(f'/api/learning/tasks/ielts/{plan["date"]}/{task["id"]}',
+        json=dict(completed=True,expected_version=task['version']),headers=h).status_code == 200
+    exam = start(c).json['session']
+    assert write(c,exam,{'r1':1},'submit').status_code == 200
+    before = c.get('/api/learning/overview/ielts').json['overview']
+    for exam_type, score in [('cet4',520),('cet6',600),('ielts',7)]:
+        assert save(c,exam_type,score,headers=h).status_code == 200
+    after = c.get('/api/learning/overview/ielts').json['overview']
+    for field in ('study_days','completed_tasks','diagnostic_accuracy','latest_diagnostic','diagnostic_history','review'):
+        assert after[field] == before[field]
+    restored = c.get('/api/learning/mocks/'+exam['id']).json['session']
+    assert restored['status'] == 'submitted' and restored['answers'] == {'r1':1}
+    assert restored['deadline'] == exam['deadline']
+    assert c.get('/api/learning/mocks?exam=ielts').json['history'][0]['id'] == exam['id']

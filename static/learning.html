@@ -6,20 +6,16 @@
   <meta name="theme-color" content="#f5f5f7">
   <title>AI 伴学 · fishyeah Chat</title>
   <link rel="stylesheet" href="/static/learning.css">
-  <script src="/static/learning.js" defer></script>
-  <script src="/static/learning-practice.js" defer></script>
-  <script src="/static/learning-hub.js" defer></script>
-  <script src="/static/learning-mocks.js" defer></script>
-<script src="/static/learning-navigation.js" defer></script>
+  <script src="/static/learning-navigation.js" defer></script><script src="/static/learning-practice.js" defer></script><script src="/static/learning-hub.js" defer></script><script src="/static/learning-mocks.js" defer></script><script src="/static/learning.js" defer></script>
 </head>
 <body>
   <dialog id="learning-drawer" aria-labelledby="drawer-title"><h2 id="drawer-title">AI 伴学</h2>
-<button id="drawer-close" type="button" aria-label="关闭学习菜单">关闭 ×</button><nav aria-label="学习导航"><a href="#overview" data-learning-go="overview" aria-current="page">学习总览</a><a href="#tasks" data-learning-go="tasks">我的学习任务</a><a href="#practice" data-learning-go="practice">考试与专项练习</a><a href="#diagnostic" data-learning-go="diagnostic">英语水平诊断</a><a href="#reviews" data-learning-go="reviews">错题与到期复习</a><a href="#mocks" data-learning-go="mocks">模拟考试</a><a href="#history" data-learning-go="history">学习历史</a><a href="/">返回 fishyeah Chat</a></nav></dialog><main id="learning-main"><header><button id="learning-menu" type="button" aria-controls="learning-drawer" aria-expanded="false">☰ 学习菜单</button><span id="current-exam" class="badge">正在加载考试…</span></header><p id="status" role="status" aria-live="polite">正在加载学习中心…</p>
+<button id="drawer-close" type="button" aria-label="关闭学习菜单">关闭 ×</button><nav aria-label="学习导航"><a href="#overview" data-learning-go="overview"><svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg"><path d="M3 3h7v7H3z"></path><path d="M14 3h7v4h-7z"></path><path d="M14 11h7v10h-7z"></path><path d="M3 14h7v7H3z"></path></svg><span class="nav-label">学习总览</span></a><a href="#exams" data-learning-go="exams"><svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg"><path d="m2 9 10-5 10 5-10 5L2 9Z"></path><path d="M6 11v6c3 3 9 3 12 0v-6"></path><path d="M22 9v7"></path></svg><span class="nav-label">考试选择</span></a><a href="#practice" data-learning-go="practice"><svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg"><path d="M12 6c-3-2-6-2-10-1v14c4-1 7-1 10 1 3-2 6-2 10-1V5c-4-1-7-1-10 1Z"></path><path d="M12 6v14"></path><path d="m15 10 2 2 3-3"></path></svg><span class="nav-label">专项练习</span></a><a href="#mocks" data-learning-go="mocks"><svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg"><path d="M9 4H5v18h14V4h-4"></path><path d="M9 2h6v4H9z"></path><path d="M8 11h1"></path><path d="M12 11h4"></path><path d="M8 16h1"></path><path d="M12 16h4"></path></svg><span class="nav-label">模拟考试</span></a><a href="#reviews" data-learning-go="reviews"><svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg"><path d="M5 3h14v6"></path><path d="M5 3v18h8"></path><path d="M3 7h4"></path><path d="M3 12h4"></path><path d="M3 17h4"></path><path d="m14 17 5-5 3 3-5 5-4 1 1-4Z"></path></svg><span class="nav-label">智能错题本</span></a><a href="#history" data-learning-go="history"><svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg"><path d="M3 11a9 9 0 1 1 2 7"></path><path d="M3 4v7h7"></path><path d="M12 7v5l3 2"></path></svg><span class="nav-label">学习记录</span></a><a href="#tasks" data-learning-go="tasks"><svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg"><path d="M9 5h12"></path><path d="M9 12h12"></path><path d="M9 19h12"></path><path d="m2 5 2 2 3-4"></path><path d="m2 12 2 2 3-4"></path><path d="m2 19 2 2 3-4"></path></svg><span class="nav-label">我的学习任务</span></a><a href="#diagnostic" data-learning-go="diagnostic"><svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg"><path d="M4 3h16v18H4z"></path><path d="m8 9 2 2 4-5"></path><path d="M8 16h8"></path></svg><span class="nav-label">英语水平诊断</span></a><a href="/"><svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg"><path d="M4 4h16v12H9l-5 4V4Z"></path><path d="M8 8h8"></path><path d="M8 12h5"></path></svg><span class="nav-label">返回 fishyeah Chat</span></a></nav></dialog><main id="learning-main"><header><button id="learning-menu" type="button" aria-controls="learning-drawer" aria-expanded="false">☰ 学习菜单</button><span id="current-exam" class="badge">正在加载考试…</span></header><p id="status" role="status" aria-live="polite">正在加载学习中心…</p>
     <button id="retry" type="button" hidden>重新加载</button>
     <section id="learning-hub" hidden=""><div class="section-title">
 <span>学习数据 · 当前考试</span><button id="hub-refresh" type="button">刷新数据</button>
 </div>
-<p id="hub-status" role="status" aria-live="polite"></p></section><section id="view-overview" data-learning-view="overview" aria-labelledby="title-overview"><h1 id="title-overview" tabindex="-1">学习总览</h1>
+<p id="hub-status" role="status" aria-live="polite"></p></section><section id="view-overview" data-learning-view="overview" aria-labelledby="title-overview" hidden=""><h1 id="title-overview" tabindex="-1">学习总览</h1>
 <div id="learning-metrics" class="metrics"></div>
       <a href="#reviews" data-learning-go="reviews" class="review-entry">查看错题与到期复习 →</a><section class="hub-panel" aria-labelledby="trends-heading"><h3 id="trends-heading">能力观察 · 保留每一小步</h3>
 <p id="trend-note" class="practice-note"></p>
@@ -29,7 +25,7 @@
 <p class="practice-note">诊断仅为入门筛查，不是正式英语能力评级。</p></section>
     <h2>最近 28 天的学习主题与做题情况</h2>
 <div id="recent-learning-summary"></div>
-<a href="#history" data-learning-go="history">查看学习历史 →</a></section><section id="view-tasks" data-learning-view="tasks" aria-labelledby="title-tasks" hidden=""><h1 id="title-tasks" tabindex="-1">我的学习任务</h1>
+<a href="#history" data-learning-go="history">查看学习记录 →</a></section><section id="view-tasks" data-learning-view="tasks" aria-labelledby="title-tasks" hidden=""><h1 id="title-tasks" tabindex="-1">我的学习任务</h1>
 <form id="timezone-form" class="timezone-form">
 <label for="learning-timezone">学习计划时区</label><input id="learning-timezone" list="timezone-options" value="Asia/Shanghai" required autocomplete="off"><datalist id="timezone-options"><option value="Asia/Shanghai"></option>
 <option value="Asia/Tokyo"></option>
@@ -43,7 +39,8 @@
 <p class="practice-note">建议先保存考试目标并完成入门筛查。计划结合自评、筛查、AI 练习弱项与到期复习，在服务器按用户时区保存当天快照。</p>
 <button id="create-plan" type="button">生成 / 恢复今日计划</button><p id="plan-date"></p>
 <div id="daily-tasks"></div></section>
-      </section><section id="view-practice" data-learning-view="practice" aria-labelledby="title-practice" hidden=""><h1 id="title-practice" tabindex="-1">考试与专项练习</h1>
+      </section><section id="view-exams" data-learning-view="exams" aria-labelledby="title-exams" hidden=""><h1 id="title-exams" tabindex="-1">考试选择</h1>
+<p id="profile-flow-note" class="practice-note">请选择考试，并设置目标分数与当前水平。保存后进入学习总览；切换考试会保留本页输入。</p>
 <section aria-labelledby="exams-heading"><div class="section-title">
 <h2 id="exams-heading">选择你的考试</h2>
 <span>为不同目标，找到适合的节奏</span>
@@ -59,10 +56,11 @@
       <form id="profile-form">
         <label for="target-score">目标分数</label><input id="target-score" name="target_score" type="number" required inputmode="decimal" aria-describedby="score-help"><small id="score-help"></small>
         <label for="current-level">当前水平 <span>自我评估</span></label><select id="current-level" name="current_level"></select>
-        <button id="save" type="submit">保存学习档案 <span>↗</span></button><p id="save-status" role="status" aria-live="polite"></p>
+        <button id="save" type="submit">保存学习档案 <span>↗</span></button><p id="save-status" role="status" aria-live="polite" tabindex="-1"></p>
       </form>
     </section>
-    <section id="practice-section" class="practice" aria-labelledby="practice-heading" hidden>
+    </section><section id="view-practice" data-learning-view="practice" aria-labelledby="title-practice" hidden=""><h1 id="title-practice" tabindex="-1">专项练习</h1>
+<section id="practice-section" class="practice" aria-labelledby="practice-heading" hidden>
       <div class="section-title">
 <h2 id="practice-heading">文字专项练习</h2>
 <span>原创小题 · 专注每一次表达</span>
@@ -104,7 +102,7 @@
 <div id="diagnostic-ai-result" aria-live="polite"></div>
         </section>
         <h2>历史诊断结果（最近 12 次）</h2>
-<div id="diagnostic-history"></div></section><section id="view-reviews" data-learning-view="reviews" aria-labelledby="title-reviews" hidden=""><h1 id="title-reviews" tabindex="-1">错题与到期复习</h1>
+<div id="diagnostic-history"></div></section><section id="view-reviews" data-learning-view="reviews" aria-labelledby="title-reviews" hidden=""><h1 id="title-reviews" tabindex="-1">智能错题本</h1>
 <section class="hub-panel" aria-labelledby="review-heading"><div class="section-title">
 <h3 id="review-heading">智能错题本与间隔复习</h3>
 <button id="review-sync" type="button">导入已有 AI 待巩固题</button>
@@ -138,7 +136,7 @@
       <details id="mock-history"><summary>模考历史与同题组对比</summary><button id="mock-history-refresh" type="button">刷新模考记录</button><div id="mock-history-content"></div>
 <button id="mock-history-prev" type="button">上一页</button><button id="mock-history-next" type="button">下一页</button></details>
     </section>
-    </section><section id="view-history" data-learning-view="history" aria-labelledby="title-history" hidden=""><h1 id="title-history" tabindex="-1">学习历史</h1>
+    </section><section id="view-history" data-learning-view="history" aria-labelledby="title-history" hidden=""><h1 id="title-history" tabindex="-1">学习记录</h1>
 <p class="practice-note">活动日历按用户时区展示真实学习活动。主题明细来自现有接口的最近 20 条练习记录与最近 12 次诊断，仅展示其中 28 天内、当前考试的记录；不是完整做题总量。</p>
 <div id="activity-days" class="activity-days"></div>
 <div id="learning-topics"></div></section><footer>fishyeah Chat · 每天一点，走得更远。</footer></main>

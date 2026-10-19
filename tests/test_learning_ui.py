@@ -58,11 +58,11 @@ def test_learning_browser(user, ai, monkeypatch, width, height, color, engine):
             page.goto(origin + '/')
             page.locator('#sideToggle').click()
             page.get_by_role('link', name='✦ AI 伴学 →').click()
-            page.locator('#learning-metrics strong').first.wait_for()
+            page.get_by_label('目标分数').wait_for()
             assert page.locator('[data-learning-view]:visible').count() == 1
-            assert page.locator('#view-overview').is_visible()
-            assert not page.locator('#exams').is_visible()
-            playwright.expect(page.locator('#recent-learning-summary')).to_contain_text('暂无学习活动')
+            assert page.locator('#view-exams').is_visible()
+            assert page.locator('#exams').is_visible()
+            assert not page.locator('#view-overview').is_visible()
             assert page.locator('#diagnostic-ai').is_disabled()
             assert page.locator('#hub-refresh').evaluate('(n)=>getComputedStyle(n).backgroundColor') == 'rgb(23, 61, 128)'
             toggle = page.locator('#learning-menu')
@@ -77,23 +77,24 @@ def test_learning_browser(user, ai, monkeypatch, width, height, color, engine):
             assert toggle.get_attribute('aria-expanded') == 'false'
             if os.getenv('LEARNING_SCREENSHOT_DIR') and engine == 'webkit' and width < 720:
                 folder = Path(os.environ['LEARNING_SCREENSHOT_DIR']); folder.mkdir(parents=True, exist_ok=True)
-                page.screenshot(path=str(folder/f'iphone-{color}-overview.png'), full_page=True)
+                page.screenshot(path=str(folder/f'iphone-{color}-onboarding.png'), full_page=True)
                 toggle.click()
                 page.screenshot(path=str(folder/f'iphone-{color}-menu.png'), full_page=True)
                 page.locator('#drawer-close').click()
-            navigate('practice')
+            navigate('exams')
             page.get_by_role('button', name='IELTS 雅思', exact=False).wait_for()
             assert page.locator('.exam').count() == 3
             page.locator('[data-exam="cet6"]').click()
-            playwright.expect(page.locator('#current-exam')).to_contain_text('六级')
-            page.locator('#question-panel').wait_for()
+            playwright.expect(page.locator('#profile-heading')).to_contain_text('六级')
+            assert page.locator('#view-exams').is_visible()
             page.locator('[data-exam="ielts"]').click()
             page.get_by_label('目标分数').fill('6.5')
             page.get_by_label('当前水平').select_option('intermediate')
             page.locator('#save').click()
             page.get_by_text('学习档案已保存。', exact=True).wait_for()
             page.reload()
-            navigate('practice')
+            playwright.expect(page.locator('#view-overview')).to_be_visible()
+            navigate('exams')
             page.locator('[data-exam="ielts"]').click()
             assert page.get_by_label('目标分数').input_value() == '6.5'
             page.locator('[data-exam="cet4"]').click()
@@ -101,6 +102,7 @@ def test_learning_browser(user, ai, monkeypatch, width, height, color, engine):
             page.get_by_label('目标分数').fill('500')
             page.locator('#save').click()
             page.get_by_text('学习档案已保存。', exact=True).wait_for()
+            navigate('practice')
             page.get_by_label('选择训练').select_option('writing')
             page.locator('#question-title').filter(has_text='写一段').wait_for()
             page.get_by_label('我的答案').fill('I believe teamwork helps students learn from one another.')
@@ -154,7 +156,8 @@ def test_learning_browser(user, ai, monkeypatch, width, height, color, engine):
             card.get_by_role('button',name='提交复习答案').click()
             page.get_by_text('复习已记录，下一次时间已安排。',exact=True).wait_for()
             page.reload()
-            navigate('practice')
+            playwright.expect(page.locator('#view-overview')).to_be_visible()
+            navigate('exams')
             page.locator('[data-exam="cet4"]').click()
             navigate('tasks')
             playwright.expect(page.get_by_role('checkbox',name=task_name,exact=True)).to_be_checked()
@@ -175,7 +178,7 @@ def test_learning_browser(user, ai, monkeypatch, width, height, color, engine):
             playwright.expect(page.locator('input[name="mock-r1"][value="1"]')).to_be_checked()
             active=page.request.get(origin+'/api/learning/mocks?exam=cet4').json()['active_id']
             before=page.request.get(origin+'/api/learning/mocks/'+active).json()['session']
-            page.reload();navigate('practice');page.locator('[data-exam="cet4"]').click();navigate('mocks')
+            page.reload();navigate('exams');page.locator('[data-exam="cet4"]').click();navigate('mocks')
             playwright.expect(page.locator('#learning-timezone')).to_have_value('America/New_York')
             page.locator('#mock-resume').click()
             playwright.expect(page.locator('input[name="mock-r1"][value="1"]')).to_be_checked()
@@ -190,7 +193,7 @@ def test_learning_browser(user, ai, monkeypatch, width, height, color, engine):
             draft='Libraries help students learn together. I support public funding.'
             page.get_by_label('模考答案',exact=True).fill(draft)
             page.locator('#mock-status').filter(has_text='同步未确认').wait_for()
-            context.set_offline(False);page.reload();navigate('practice');page.locator('[data-exam="cet4"]').click();navigate('mocks')
+            context.set_offline(False);page.reload();navigate('exams');page.locator('[data-exam="cet4"]').click();navigate('mocks')
             page.locator('#mock-resume').click()
             playwright.expect(page.get_by_label('模考答案',exact=True)).to_have_value(draft)
             page.locator('#mock-status').filter(has_text=re.compile('已恢复服务器答案|答案已同步到服务器')).wait_for()
@@ -204,7 +207,7 @@ def test_learning_browser(user, ai, monkeypatch, width, height, color, engine):
             page.wait_for_function('document.querySelector("#mock-material audio")?.readyState >= 1')
             assert page.locator('#mock-material audio').evaluate('(audio)=>audio.error===null')
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
-            for view in ['overview','tasks','practice','diagnostic','reviews','mocks','history']:
+            for view in ['overview','exams','practice','mocks','reviews','history','tasks','diagnostic']:
                 navigate(view)
                 assert page.locator('#view-'+view).is_visible()
                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
