@@ -10,6 +10,7 @@
   <script src="/static/learning-practice.js" defer></script>
   <script src="/static/learning-hub.js" defer></script>
   <script src="/static/learning-mocks.js" defer></script>
+  <script src="/static/learning-voice.js" defer></script>
 </head>
 <body>
   <aside class="sidebar">
@@ -56,6 +57,23 @@
       <section id="mock-report" hidden aria-labelledby="mock-report-heading"><h3 id="mock-report-heading" tabindex="-1">模考学习报告</h3><div id="mock-report-content"></div></section>
       <details id="mock-history"><summary>模考历史与同题组对比</summary><button id="mock-history-refresh" type="button">刷新模考记录</button><div id="mock-history-content"></div><button id="mock-history-prev" type="button">上一页</button><button id="mock-history-next" type="button">下一页</button></details>
     </section>
+    <section id="voice-center" class="hub-panel" aria-labelledby="voice-heading" hidden>
+      <p class="eyebrow">SPEAK A LITTLE. GROW A LITTLE.</p><h2 id="voice-heading">语音伴学</h2>
+      <p class="practice-note">原创缩短版训练，非完整考试、非官方成绩。题库考官按 Part 1 → Part 2 → Part 3 提问；可选 AI 追问与文字反馈。没有可靠音频分析时不提供发音评分。</p>
+      <div class="voice-examples"><label for="voice-accent">英美音示例 · 本地合成，无付费调用</label><select id="voice-accent"><option value="gb">英式发音</option><option value="us">美式发音</option></select><audio id="voice-example" controls preload="none" aria-label="英美音发音示例"></audio><p lang="en">Learning a language takes practice. Tell me about a place you enjoy visiting, and explain what makes it special.</p><p class="practice-note">合成示例仅供听辨，不是真人标准发音认证；设备播放需主动点击。</p></div>
+      <p id="voice-status" role="status" aria-live="polite"></p><p id="voice-budget" class="practice-note"></p>
+      <div id="voice-ielts"><button id="voice-start" type="button">开始 IELTS 分段口语</button><label for="voice-history">恢复最近口语会话</label><select id="voice-history"></select><button id="voice-resume" type="button">恢复会话</button>
+        <section id="voice-dialog" hidden><h3 id="voice-part"></h3><p id="voice-prompt" lang="en"></p><button id="voice-read-prompt" type="button">朗读考官问题 · 设备本地音色</button><p class="practice-note">问题朗读优先匹配上方英式/美式选项，仅使用设备标记为本地的音色；没有匹配音色时显示文字，不调用云端 TTS。</p><p id="voice-clock" role="timer"></p><button id="voice-prepare" type="button" hidden>Part 2 · 开始 60 秒准备</button>
+          <details><summary>录音、权限与隐私</summary><p class="practice-note">仅在你勾选同意并点击录音后请求麦克风权限。需 HTTPS；Safari 请在网站设置允许麦克风。每段 0.5–120 秒、最大 4 MiB。停止或离开时释放麦克风。录音仅在当前页面临时保存，刷新即丢失；不写入浏览器存储。</p><p class="practice-note">试听在本机进行。仅点击“上传并转写”才将音频经本站发送至 OpenAI；服务器临时解码后删除原始音频。转写、文字回答和反馈保存在账户下，可删除会话。请勿录入敏感信息或他人声音。OpenAI 的数据保留政策仍适用。</p><a href="https://platform.openai.com/docs/guides/your-data" target="_blank" rel="noopener noreferrer">查看 OpenAI 数据政策</a></details>
+          <label class="voice-consent"><input id="voice-consent" type="checkbox">我了解录音隐私说明，同意本机录音；上传另行点击确认</label>
+          <div class="voice-actions"><button id="voice-record" type="button">开始录音</button><button id="voice-stop" type="button" disabled>停止录音</button><button id="voice-clear" type="button">清除本机录音</button><button id="voice-text-mode" type="button">切换文字模式</button></div>
+          <audio id="voice-preview" controls preload="metadata" aria-label="我的录音试听" hidden></audio><button id="voice-transcribe" type="button" disabled>上传并转写 · 消耗 1 条消息额度</button>
+          <form id="voice-answer-form"><label for="voice-answer">我的回答 / 核对转写</label><textarea id="voice-answer" maxlength="4000" rows="5" required placeholder="语音不可用时，可直接输入英文回答"></textarea><button id="voice-next" type="submit">保存回答，进入下一题 · 不调用 AI</button></form>
+          <div id="voice-turns"></div><button id="voice-delete" type="button">删除此会话及关联转写、反馈</button>
+        </section>
+      </div>
+      <div id="voice-listening" hidden><h3>CET 听力专项</h3><p class="practice-note">播放原创预制音频、计时作答、查看解析；音频播放不调用付费 API。沿用分项模考的自动保存与断线恢复。</p><div id="voice-listening-options"></div></div>
+    </section>
     <section id="practice-section" class="practice" aria-labelledby="practice-heading" hidden>
       <div class="section-title"><h2 id="practice-heading">文字专项练习</h2><span>原创小题 · 专注每一次表达</span></div>
       <p class="practice-note">口语先练文字表达，听力先做文本理解。当前不录音、不播放音频，也不评价发音或听辨能力。</p>
@@ -76,7 +94,7 @@
       <section id="feedback" class="feedback" aria-labelledby="feedback-heading" hidden><h3 id="feedback-heading" tabindex="-1">AI 学习反馈</h3><div id="feedback-content"></div></section>
       <details class="history"><summary>最近的练习记录（最多 20 条）</summary><button id="refresh-practice" type="button">刷新状态与记录</button><div id="practice-history"></div></details>
     </section>
-    <section class="next"><span class="spark">✧</span><div><h2>每一次练习，都有下一步。</h2><p>从入门筛查到分项短模考，让每一步都有反馈。完整考试和语音口语评估仍待后续阶段。</p><span class="badge">持续完善</span></div></section>
+    <section class="next"><span class="spark">✧</span><div><h2>每一次练习，都有下一步。</h2><p>从入门筛查到分项训练，让每一步都有反馈。完整考试与可靠发音评估仍待后续完善。</p><span class="badge">持续完善</span></div></section>
     <footer>fishyeah Chat · 陪你把英语变成自己的能力</footer>
   </main>
 </body>

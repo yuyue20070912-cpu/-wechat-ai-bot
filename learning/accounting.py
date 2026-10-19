@@ -37,7 +37,7 @@ def recover(connection):
         return len(rows)
 
 
-def reserve(connection, user_id, request_id, question, answer, model, limits, free_limit):
+def reserve(connection, user_id, request_id, question, answer, model, limits, free_limit, extra_reserve=None):
     recover(connection)
     user_limit, global_limit = limits
     try:
@@ -56,6 +56,8 @@ def reserve(connection, user_id, request_id, question, answer, model, limits, fr
                     return row[3]
                 raise PracticeError('该请求正在处理或已经结束，请查看练习记录', 409)
             day = inserted[0]
+            if extra_reserve is not None:
+                extra_reserve(conn, day)
             # Every attempted provider call reserves a nonrefundable budget slot.
             budget = conn.execute('''INSERT INTO learning_daily_budget(usage_day,calls) VALUES (%s,1)
                 ON CONFLICT (usage_day) DO UPDATE SET calls=learning_daily_budget.calls+1
@@ -113,7 +115,7 @@ def history(connection, user_id, request_id=None):
             ' ORDER BY created_at DESC LIMIT 20',
             (user_id, request_id) if request_id else (user_id,)).fetchall()
     return [dict(request_id=str(r[0]), question_id=r[1], exam_type=r[2], skill=r[3], answer=r[4],
-                 purpose='diagnostic' if r[1].startswith('diagnostic-') else 'mock' if r[1].startswith('mock-') else 'practice',
+                 purpose='voice' if r[1].startswith('voice-') else 'diagnostic' if r[1].startswith('diagnostic-') else 'mock' if r[1].startswith('mock-') else 'practice',
                  status=r[5], feedback=r[6], created_at=r[7].isoformat(),
                  finished_at=r[8].isoformat() if r[8] else None) for r in rows]
 

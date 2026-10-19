@@ -19,6 +19,7 @@ def create_blueprint(connection, require_login, rate_limit, ai_provider, model):
         response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
+        response.headers['Permissions-Policy'] = 'microphone=(self), camera=()'
         return response
 
     @bp.get('/learning')

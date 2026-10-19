@@ -43,7 +43,7 @@ def capture_attempt(conn, user_id, request_id, manual=False):
 def sync(connection, user_id, exam):
     with connection() as conn:
         rows = conn.execute('''SELECT request_id FROM learning_attempts a WHERE user_id=%s
-            AND exam_type=%s AND status='completed' AND question_id NOT LIKE 'diagnostic-%%' AND question_id NOT LIKE 'mock-%%'
+            AND exam_type=%s AND status='completed' AND question_id NOT LIKE 'diagnostic-%%' AND question_id NOT LIKE 'mock-%%' AND question_id NOT LIKE 'voice-%%'
             AND CASE WHEN jsonb_typeof(feedback->'score')='number' THEN (feedback->>'score')::numeric < 70 ELSE FALSE END
             AND NOT EXISTS (SELECT 1 FROM learning_review_items r WHERE r.user_id=a.user_id
                 AND r.item_key='practice:' || a.request_id::text)

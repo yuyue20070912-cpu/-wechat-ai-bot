@@ -41,7 +41,7 @@
     el('next-question').disabled = value;
     el('practice-answer').disabled = value;
     el('analyze-answer').disabled = value || !state || !state.enabled || !questions.length;
-    document.querySelectorAll('.exam').forEach(button => {button.disabled = value || document.body.dataset.hubBusy === 'true' || document.body.dataset.mockBusy === 'true';});
+    document.querySelectorAll('.exam').forEach(button => {button.disabled = value || document.body.dataset.voiceBusy === 'true' || document.body.dataset.hubBusy === 'true' || document.body.dataset.mockBusy === 'true';});
     el('answer-form').setAttribute('aria-busy', String(value));
   }
   async function refresh() {
@@ -62,6 +62,10 @@
       const status = {pending: '分析中', completed: '已完成', refunded: '未完成，消息额度已退还'}[attempt.status];
       text('p', `${attempt.exam_type.toUpperCase()} · ${attempt.purpose === 'diagnostic' ? '入门筛查 AI 解读' : attempt.purpose === 'mock' ? '模考 AI 参考评分' : state.skills[attempt.skill]} · ${status}`, card);
       text('small', new Date(attempt.created_at).toLocaleString('zh-CN'), card);
+      if (attempt.purpose === 'voice') {
+        text('p', '语音转写 / 口语文字反馈，未评估发音，无参考分。请在语音伴学中恢复会话查看；已删除内容不再显示。', card);
+        history.append(card); return;
+      }
       const details = document.createElement('details'); text('summary', '查看我的答案', details); text('p', attempt.answer, details); card.append(details);
       if (attempt.feedback) {
         const button = text('button', '查看反馈', card); button.type = 'button';

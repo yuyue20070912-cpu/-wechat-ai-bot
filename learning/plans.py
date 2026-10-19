@@ -14,7 +14,7 @@ def context(conn, user_id, exam):
         WHERE user_id=%s AND exam_type=%s ORDER BY created_at DESC,request_id DESC LIMIT 1''', (user_id, exam)).fetchone()
     averages = conn.execute('''SELECT skill,AVG((feedback->>'score')::numeric) FROM (
         SELECT skill,feedback FROM learning_attempts WHERE user_id=%s AND exam_type=%s AND status='completed'
-        AND question_id NOT LIKE 'diagnostic-%%' AND question_id NOT LIKE 'mock-%%' ORDER BY created_at DESC LIMIT 30) recent
+        AND question_id NOT LIKE 'diagnostic-%%' AND question_id NOT LIKE 'mock-%%' AND question_id NOT LIKE 'voice-%%' ORDER BY created_at DESC LIMIT 30) recent
         GROUP BY skill ORDER BY AVG((feedback->>'score')::numeric),skill''', (user_id, exam)).fetchall()
     due = conn.execute('''SELECT COUNT(*) FROM learning_review_items
         WHERE user_id=%s AND exam_type=%s AND due_at<=NOW()''', (user_id, exam)).fetchone()[0]

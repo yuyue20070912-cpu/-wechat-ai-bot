@@ -9,7 +9,7 @@
   const cacheKey=()=>scope&&current?`fishyeah-mock:${scope}:${current.id}`:null;
   function persist(){try{const key=cacheKey();if(key)sessionStorage.setItem(key,JSON.stringify({dirty,pending,baseVersion:current.version}));}catch(_){status('本标签页草稿暂存不可用，请保持联网并确认同步状态。');}}
   function clearCache(){try{const key=cacheKey();if(key)sessionStorage.removeItem(key);}catch(_){} }
-  function busy(value){document.body.dataset.mockBusy=String(value);document.querySelectorAll('.exam').forEach(button=>{button.disabled=value||document.body.dataset.hubBusy==='true'||document.body.dataset.practiceBusy==='true';});}
+  function busy(value){document.body.dataset.mockBusy=String(value);document.querySelectorAll('.exam').forEach(button=>{button.disabled=value||document.body.dataset.voiceBusy==='true'||document.body.dataset.hubBusy==='true'||document.body.dataset.practiceBusy==='true';});}
   async function api(path,method='GET',body,timeout=10000){
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeout);
     try{
