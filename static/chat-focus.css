@@ -143,3 +143,26 @@ body.dark #chatArea .chat-composer #sendBtn { background: #f5f6f8!important; col
   #chatArea .chat-composer #message { width: 100%!important; height: 60px!important; min-height: 60px!important; }
   #chatArea .chat-composer #sendBtn { width: 46px!important; height: 46px!important; min-height: 46px!important; }
 }
+
+/* Keep the send button centered in the pill, independent of bottom safe-area spacing. */
+#chatArea .chat-composer #sendBtn {
+  top: 31px!important;
+  right: 7px!important;
+  transform: translateY(-50%);
+  display: flex!important;
+  align-items: center!important;
+  justify-content: center!important;
+  margin: 0!important;
+  line-height: 1!important;
+}
+#chatArea .chat-composer #sendBtn span {
+  display: block;
+  line-height: 1;
+  transform: translateY(-1px);
+}
+@media (max-width: 600px) {
+  #chatArea .chat-composer #sendBtn {
+    top: 30px!important;
+    right: 7px!important;
+  }
+}
