@@ -16,7 +16,8 @@ def create_blueprint(connection, require_login, rate_limit, ai_provider, model):
 
     @bp.after_request
     def private_response(response):
-        response.headers['Cache-Control'] = 'no-store'
+        if request.endpoint != 'learning.ielts_pilot_audio' or response.status_code not in (200, 206, 304):
+            response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
         return response
