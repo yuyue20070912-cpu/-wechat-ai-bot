@@ -38,12 +38,12 @@
     const root = el('feedback-content'); root.replaceChildren();
     text('p', `参考分 ${feedback.score}/100 · ${feedback.score_label}`, root).className = 'feedback-score';
     text('p', feedback.summary, root);
-    for (const [label, key] of [['做得好的地方', 'strengths'], ['下一次可以改进', 'improvements']]) {
+    for (const [label, key] of [['优点', 'strengths'], ['改进', 'improvements']]) {
       text('h4', label, root);
       const list = document.createElement('ul'); root.append(list);
       feedback[key].forEach(item => text('li', item, list));
     }
-    for (const [label, key] of [['表达改写', 'revised_answer'], ['题目参考答案', 'reference_answer'], ['下一步', 'next_step']]) {
+    for (const [label, key] of [['表达改写', 'revised_answer'], ['参考答案', 'reference_answer'], ['下一步', 'next_step']]) {
       text('h4', label, root); text('p', feedback[key], root);
     }
     el('feedback').hidden = false;
@@ -62,15 +62,15 @@
     state = await api('/api/learning/practice');
     document.dispatchEvent(new CustomEvent('learning:records',{detail:state.attempts}));
     const u = state.usage;
-    el('practice-usage').textContent = `${state.enabled ? '' : 'AI 反馈暂未开放，可先浏览题目。'}今日调用剩余 ${u.calls_remaining}/${u.daily_call_limit} 次 · 共享消息剩余 ${u.message_remaining} 条 · 每日调用 UTC 00:00 重置`;
+    el('practice-usage').textContent = `${state.enabled ? '' : 'AI 反馈暂未开放，可先浏览题目。'}今日调用剩余 ${u.calls_remaining}/${u.daily_call_limit} 次 · 共享消息剩余 ${u.message_remaining} 条 · UTC 00:00 重置`;
     if (!el('practice-skill').options.length) {
-      Object.entries(state.skills).forEach(([value, label]) => {
+      Object.entries(state.skills).filter(([value]) => value !== 'listening').forEach(([value, label]) => {
         const option = document.createElement('option'); option.value = value; option.textContent = label;
         el('practice-skill').append(option);
       });
     }
     const history = el('practice-history'); history.replaceChildren();
-    if (!state.attempts.length) text('p', '还没有练习记录，开始第一道吧。', history);
+    if (!state.attempts.length) text('p', '暂无练习记录', history);
     state.attempts.forEach(attempt => {
       const card = document.createElement('article'); card.className = 'history-item';
       card.dataset.requestId = attempt.request_id;
@@ -110,9 +110,9 @@
     el('material-text').textContent = question.material;
     el('question-prompt').lang = question.skill === 'translation' ? 'zh-CN' : 'en';
     el('material-text').lang = question.skill === 'translation' ? 'zh-CN' : 'en';
-    el('material-label').textContent = question.skill === 'listening' ? '展开转写文本（当前无音频）' : '展开阅读材料';
+    el('material-label').textContent = '阅读材料';
     el('question-material').hidden = !question.material;
-    el('question-material').open = question.skill !== 'listening';
+    el('question-material').open = true;
     el('supplemental').hidden = !question.supplemental;
     el('practice-answer').value = '';
     el('practice-status').textContent = '';
@@ -140,7 +140,7 @@
   });
   el('practice-skill').onchange = loadQuestions;
   document.addEventListener('learning:practice-skill', async event => {
-    if (busy || !exam || exam.id !== event.detail.exam_type) return;
+    if (busy || !exam || exam.id !== event.detail.exam_type || event.detail.skill === 'listening') return;
     el('practice-skill').value = event.detail.skill;
     await loadQuestions();
     el('practice-answer').focus();
@@ -164,7 +164,7 @@
       pending = {request_id: uuid(), question_id: question.id, answer};
     }
     lock(true); el('feedback').hidden = true;
-    el('practice-status').textContent = 'AI 正在分析，请稍候。离开页面不会取消已经提交的分析。';
+    el('practice-status').textContent = '分析中…';
     try {
       const data = await api('/api/learning/attempts', {method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-Learning-CSRF': csrf}, body: JSON.stringify(pending)});

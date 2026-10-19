@@ -4,6 +4,7 @@ import os
 import json
 import re
 from time import monotonic
+from uuid import uuid4
 from collections import deque
 from pathlib import Path
 from threading import Thread
@@ -73,7 +74,7 @@ def test_learning_browser(user, ai, monkeypatch, width, height, color, engine):
             assert page.locator('#exams').is_visible()
             assert not page.locator('#view-overview').is_visible()
             assert page.locator('#diagnostic-ai').is_disabled()
-            assert page.locator('#hub-refresh').evaluate('(n)=>getComputedStyle(n).backgroundColor') == 'rgb(23, 61, 128)'
+            assert page.locator('#learning-drawer #themeOptions').count() == 1
             toggle = page.locator('#learning-menu')
             toggle.focus(); page.keyboard.press('Enter')
             playwright.expect(page.locator('#drawer-close')).to_be_focused()
@@ -90,6 +91,16 @@ def test_learning_browser(user, ai, monkeypatch, width, height, color, engine):
                 toggle.click()
                 page.screenshot(path=str(folder/f'iphone-{color}-menu.png'), full_page=True)
                 page.locator('#drawer-close').click()
+            # Learning shares the existing preference and honors manual choices over system appearance.
+            toggle.click()
+            page.locator('.appearance > summary').click()
+            for preference, effective in [('light','light'), ('dark','dark'), ('system',color)]:
+                page.locator(f'input[name="chat-theme"][value="{preference}"]').check()
+                playwright.expect(page.locator('html')).to_have_attribute('data-theme',effective)
+                assert page.evaluate('localStorage.getItem("fishyeah-chat-theme")') == preference
+            page.keyboard.press('Escape')
+            page.reload()
+            playwright.expect(page.locator('html')).to_have_attribute('data-theme',color)
             navigate('exams')
             page.get_by_role('button', name='IELTS 雅思', exact=False).wait_for()
             assert page.locator('.exam').count() == 3
@@ -115,23 +126,21 @@ def test_learning_browser(user, ai, monkeypatch, width, height, color, engine):
             page.get_by_label('选择训练').select_option('writing')
             page.locator('#question-title').filter(has_text='写一段').wait_for()
             page.get_by_label('我的答案').fill('I believe teamwork helps students learn from one another.')
-            page.get_by_role('button', name='提交并获取 AI 反馈').click()
+            page.get_by_role('button', name='获取反馈').click()
             page.get_by_text('反馈已保存。', exact=True).wait_for()
             assert page.locator('#feedback-content').inner_text().find('72/100') >= 0
             assert page.locator('#feedback-content img').count() == 0
             assert not page.evaluate('Boolean(window.unsafeFeedback)')
-            page.get_by_role('button', name='提交并获取 AI 反馈').click()
+            page.get_by_role('button', name='获取反馈').click()
             page.get_by_text('已恢复上次反馈，没有重复扣费。', exact=True).wait_for()
             assert len(ai.calls) == 1
             page.locator('.history > summary').click()
             playwright.expect(page.locator('#practice-history')).to_contain_text('已完成')
             page.get_by_role('button',name='加入错题本',exact=True).click()
             page.get_by_role('button',name='已加入错题本',exact=True).wait_for()
-            page.get_by_label('选择训练').select_option('listening')
-            page.locator('#question-title').filter(has_text='辨认变更').wait_for()
-            assert not page.locator('#question-material').evaluate('(node) => node.open')
-            page.locator('#material-label').click()
-            assert page.locator('#material-text').is_visible()
+            assert 'listening' not in page.locator('#practice-skill option').evaluate_all('(nodes)=>nodes.map(n=>n.value)')
+            page.get_by_label('选择训练').select_option('reading')
+            page.locator('#material-text').wait_for()
             assert page.locator('audio').count() == 0
             draft = 'An unfinished practice answer survives menu navigation.'
             page.get_by_label('我的答案').fill(draft)
@@ -143,10 +152,10 @@ def test_learning_browser(user, ai, monkeypatch, width, height, color, engine):
             for q in TESTS['cet4']:
                 page.locator(f'input[name="diag-{q["id"]}"][value="{(q["correct_index"]+1)%3}"]').check()
             navigate('overview'); navigate('diagnostic')
-            assert page.locator('#diagnostic-form input:checked').count() == 6
+            assert page.locator('#diagnostic-form input:checked').count() == 5
             page.locator('#diagnostic-submit').click()
             page.get_by_text('诊断已保存，错题已加入复习；本次未调用付费 AI。',exact=True).wait_for()
-            playwright.expect(page.locator('#diagnostic-summary')).to_contain_text('0/6 题正确')
+            playwright.expect(page.locator('#diagnostic-summary')).to_contain_text('0/5 题正确')
             assert page.locator('#diagnostic-ai').is_disabled()
             navigate('tasks')
             page.locator('#create-plan').click()
@@ -170,7 +179,7 @@ def test_learning_browser(user, ai, monkeypatch, width, height, color, engine):
             page.locator('[data-exam="cet4"]').click()
             navigate('tasks')
             playwright.expect(page.get_by_role('checkbox',name=task_name,exact=True)).to_be_checked()
-            playwright.expect(page.locator('#diagnostic-summary')).to_contain_text('0/6 题正确')
+            playwright.expect(page.locator('#diagnostic-summary')).to_contain_text('0/5 题正确')
             assert len(ai.calls)==1
             playwright.expect(page.locator('#learning-timezone')).to_have_value('Asia/Shanghai')
             playwright.expect(page.locator('#screening-group')).to_contain_text('题组 2/3')
@@ -210,24 +219,34 @@ def test_learning_browser(user, ai, monkeypatch, width, height, color, engine):
             page.get_by_text('已交卷，报告已保存。',exact=True).wait_for()
             assert page.locator('#mock-report-content button').is_disabled()
             assert len(ai.calls)==1  # mock lifecycle and recovery did not trigger paid grading
-            page.locator('#mock-template').select_option('cet4-listening-a-short-v1')
-            page.locator('#mock-start').click()
-            page.locator('#mock-material audio').wait_for()
-            page.wait_for_function('document.querySelector("#mock-material audio")?.readyState >= 1')
-            assert page.locator('#mock-material audio').evaluate('(audio)=>audio.error===null')
+            # A legacy active listening mock cannot reopen its exercise or block other mocks forever.
+            csrf = page.request.get(origin+'/api/learning/profiles').json()['csrf_token']
+            legacy = page.request.post(origin+'/api/learning/mocks', data={'session_id':str(uuid4()),'template_id':'cet4-listening-a-short-v1'}, headers={'X-Learning-CSRF':csrf}).json()['session']
+            saved = page.request.put(origin+f'/api/learning/mocks/{legacy["id"]}/answers', data={'request_id':str(uuid4()),'expected_version':legacy['version'],'answers':{'l1':0}}, headers={'X-Learning-CSRF':csrf})
+            assert saved.status == 200
+            page.locator('#mock-history > summary').click()
+            page.locator('#mock-history-refresh').click()
+            playwright.expect(page.locator('#mock-resume')).to_be_visible()
+            page.once('dialog',lambda dialog:dialog.accept())
+            page.locator('#mock-resume').click()
+            playwright.expect(page.locator('#mock-resume')).to_be_hidden()
+            finished = page.request.get(origin+'/api/learning/mocks/'+legacy['id']).json()['session']
+            assert finished['status'] == 'submitted' and finished['answers']['l1'] == 0
+            assert page.locator('#mock-active').is_hidden()
+            assert not any('listening' in value for value in page.locator('#mock-template option').evaluate_all('(nodes)=>nodes.map(n=>n.value)'))
+            assert page.locator('audio').count() == 0
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
             for view in ['overview','exams','practice','mocks','reviews','history','tasks','diagnostic']:
                 navigate(view)
                 assert page.locator('#view-'+view).is_visible()
                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                 page.mouse.move(width-1, 0)
-                for button in page.locator('#view-'+view+' button:visible:not(.exam):not(:disabled):not(#mock-reload)').all():
-                    assert button.evaluate('(n)=>getComputedStyle(n).backgroundColor') == 'rgb(23, 61, 128)'
+                for button in page.locator('#view-'+view+' button:visible').all():
+                    assert button.bounding_box()['height'] >= 44
             navigate('overview')
             expected = page.request.get(origin+'/api/learning/overview/cet4').json()['overview']
             assert page.locator('#learning-metrics strong').all_text_contents() == [str(expected['study_days']), str(expected['completed_tasks']), format(expected['diagnostic_accuracy'], 'g')+'%', str(expected['review']['due'])]
-            playwright.expect(page.locator('#recent-learning-summary')).to_contain_text('六题入门筛查')
-            playwright.expect(page.locator('#recent-learning-summary')).to_contain_text('完成 1 次专项练习、1 次诊断；诊断共 6 题，正确 0 题')
+            playwright.expect(page.locator('#recent-learning-summary')).to_contain_text('完成 1 次专项练习、1 次诊断；诊断共 5 题，正确 0 题')
             if os.getenv('LEARNING_SCREENSHOT_DIR') and engine == 'webkit' and width < 720:
                 page.screenshot(path=str(folder/f'iphone-{color}-recorded-overview.png'), full_page=True)
             monkeypatch.setenv('LEARNING_DIAGNOSTIC_AI_ENABLED','1')

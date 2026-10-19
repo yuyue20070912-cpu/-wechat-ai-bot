@@ -32,7 +32,7 @@
     finally{lock(false);}
   }
   function renderTest(value) {
-    test=value;pendingDiagnostic=null;el('screening-group').textContent=`入门筛查 · 题组 ${value.group}/${value.groups} · 非完整水平测试`;
+    test=value;pendingDiagnostic=null;el('screening-group').textContent=`题组 ${value.group}/${value.groups}`;
     const root=el('diagnostic-questions');root.replaceChildren();
     value.questions.forEach(q=>{
       const group=document.createElement('fieldset');text('legend',`${skills[q.skill]} · ${q.prompt}`,group);
@@ -59,19 +59,19 @@
       text('p','待巩固：'+(report.result.weak_skills.map(s=>skills[s]).join('、')||'继续用专项练习验证'),summary);
       const details=document.createElement('details');text('summary','查看本地判分与解析',details);
       report.result.details.forEach(item=>text('p',`${skills[item.skill]}：${item.correct?'正确':'需复习'}。${item.explanation}`,details));summary.append(details);
-    }else{text('p','先用六道题，认识自己的起点。',summary);}
-    el('trend-note').textContent=data.notice;
-    const diag=el('diagnostic-trend');diag.replaceChildren();text('h4','客观诊断变化',diag);
-    if(data.diagnostic_delta!==null)text('p',`较上一次同版本诊断：${data.diagnostic_delta>0?'+':''}${data.diagnostic_delta} 个百分点（仅六题小样本）`,diag);
-    if(!data.diagnostic_history.length)text('p','完成诊断后展示客观题正确率；至少两次同版本结果才能计算变化。',diag);
+    }else{text('p','尚未诊断',summary);}
+    el('trend-note').textContent='筛查与 AI 参考分，非正式能力评级。';
+    const diag=el('diagnostic-trend');diag.replaceChildren();text('h4','诊断正确率',diag);
+    if(data.diagnostic_delta!==null)text('p',`较上一次同版本诊断：${data.diagnostic_delta>0?'+':''}${data.diagnostic_delta} 个百分点（小样本）`,diag);
+    if(!data.diagnostic_history.length)text('p','暂无诊断记录',diag);
     data.diagnostic_history.forEach(point=>{
       const row=document.createElement('div');row.className='trend-row';
       text('span',new Date(point.created_at).toLocaleDateString('zh-CN'),row);
       const meter=document.createElement('meter');meter.min=0;meter.max=100;meter.value=point.result.accuracy;meter.setAttribute('aria-label','文字诊断正确率');row.append(meter);
       text('span',point.result.accuracy+'%',row);diag.append(row);
     });
-    const practice=el('practice-trend');practice.replaceChildren();text('h4','AI 练习参考分（独立观察）',practice);
-    if(!data.practice_scores.length)text('p','尚无已完成的 AI 文字练习。诊断 AI 解读不会计入本项。',practice);
+    const practice=el('practice-trend');practice.replaceChildren();text('h4','练习参考分',practice);
+    if(!data.practice_scores.length)text('p','暂无练习成绩',practice);
     data.practice_scores.forEach(s=>text('p',`${skills[s.skill]} · ${s.count} 次 · 均分 ${s.average}/100 · ${s.change===null?'样本不足，暂不计算变化':`首次到最近 ${s.change>0?'+':''}${s.change} 参考分`}`,practice));
     const calendar=el('activity-days');calendar.replaceChildren();
     for(let i=27;i>=0;i--){
@@ -84,8 +84,8 @@
     const root=el('daily-tasks');root.replaceChildren();
     el('plan-date').textContent=plan?`${plan.date} · ${plan.inputs.timezone} · 今天的安排`:'今日尚无计划。可先完成诊断，再生成。';
     if(!plan)return;
-    text('p',plan.notice,root).className='practice-note';
-    plan.tasks.forEach(task=>{
+
+    plan.tasks.filter(task=>task.skill!=='listening').forEach(task=>{
       const card=document.createElement('article');card.className='daily-task';card.dataset.taskId=task.id;
       const label=document.createElement('label'), input=document.createElement('input');
       input.type='checkbox';input.checked=task.completed;input.setAttribute('aria-label','完成任务：'+task.title);
@@ -99,7 +99,7 @@
         input.disabled=false;
       };
       label.append(input,document.createTextNode(task.title));card.append(label);
-      text('small',`${task.minutes} 分钟 · ${task.reason}`,card);
+      text('small',`${task.minutes} 分钟`,card);
       const go=text('button','去完成',card);go.type='button';go.onclick=()=>{
         if(task.kind==='diagnostic'){document.dispatchEvent(new CustomEvent('learning:navigate',{detail:'diagnostic'}));el('diagnostic-details').open=true;el('diagnostic-details').scrollIntoView({block:'start'});}
         else if(task.kind==='review'){document.dispatchEvent(new CustomEvent('learning:navigate',{detail:'reviews'}));el('review-heading').scrollIntoView({block:'start'});}
@@ -111,7 +111,7 @@
     const root=el('review-items');root.replaceChildren();
     el('review-count').textContent=`共 ${data.total} 项 · ${data.due} 项到期 · 第 ${Math.floor(offset/30)+1} 页`;
     el('review-prev').disabled=offset===0;el('review-next').disabled=offset+30>=data.total;
-    if(!data.items.length)text('p','还没有待巩固项目。诊断错题和 AI 练习记录会在这里汇合。',root);
+    if(!data.items.length)text('p','暂无待复习错题',root);
     data.items.forEach((item,index)=>{
       const card=document.createElement('details');card.className='review-card';card.dataset.itemKey=item.item_key;
       text('summary',`${skills[item.skill]} · ${item.source_type==='diagnostic'?'客观错题':'AI 待巩固'} · ${item.is_due?'现在复习':'下次 '+new Date(item.due_at).toLocaleString('zh-CN')}`,card);
@@ -125,6 +125,7 @@
         text('p',item.content.ai_feedback.revised_answer,solution);
       }card.append(solution);
       text('p',`复习状态：${{new:'新收录',relearning:'重新学习',reviewing:'复习中',mastered:'已巩固'}[item.state]} · 连续掌握 ${item.repetitions} 次`,card);
+      if(item.skill==='listening'){text('p','历史记录 · 已下线',card);root.append(card);return;}
       const form=document.createElement('form'), label=text('label','本次复习答案',form), id='review-answer-'+index;
       label.htmlFor=id;
       let answer;
@@ -175,7 +176,7 @@
     const changed=!exam||exam.id!==event.detail.exam.id;
     exam=event.detail.exam;csrf=event.detail.csrf;if(changed)offset=0;
     el('learning-hub').hidden=false;el('hub-status').textContent='正在加载个人学习数据…';
-    try{await load(changed);el('hub-status').textContent='学习数据已同步。';}catch(error){el('hub-status').textContent=error.message;}
+    try{await load(changed);el('hub-status').textContent='';}catch(error){el('hub-status').textContent=error.message;}
   });
   document.addEventListener('learning:data-changed',async()=>{if(exam&&!busy){try{await load(false);}catch(error){el('hub-status').textContent=error.message;}}});
   el('hub-refresh').onclick=()=>action(()=>Promise.resolve(),'学习数据已同步。');

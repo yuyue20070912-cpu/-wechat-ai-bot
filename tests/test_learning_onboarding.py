@@ -102,9 +102,9 @@ def test_onboarding_profiles_navigation_and_account_changes(user, engine, width,
                 assert icon.get_attribute('focusable')=='false'
                 assert icon.evaluate('(n)=>getComputedStyle(n).width')=='20px'
             selected=page.locator('#learning-drawer [aria-current=page] .nav-icon')
-            assert selected.evaluate('(n)=>getComputedStyle(n).color')=='rgb(23, 61, 128)'
+            assert selected.evaluate('(n)=>getComputedStyle(n).color')==page.locator('#learning-drawer nav a[aria-current] .nav-label').evaluate('(n)=>getComputedStyle(n).color')
             neutral=page.locator('#learning-drawer [data-learning-go=exams] .nav-icon')
-            assert neutral.evaluate('(n)=>getComputedStyle(n).color')!='rgb(23, 61, 128)'
+            assert neutral.evaluate('(n)=>getComputedStyle(n).color')!=selected.evaluate('(n)=>getComputedStyle(n).color')
             screenshot('menu')
             page.keyboard.press('Escape')
             playwright.expect(page.locator('#learning-menu')).to_be_focused()

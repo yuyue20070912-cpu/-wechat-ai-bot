@@ -99,7 +99,7 @@ def register_personalization(bp, connection, require_login, rate_limit, ai_provi
             return jsonify(error='付费 AI 诊断解读默认关闭，仍可使用本地诊断和学习计划'), 503
         facts = report['result']
         question = dict(id='diagnostic-' + diagnostic_id, exam_type=report['exam_type'], skill='reading',
-            diagnostic=True, prompt='解读这份六题文字诊断，结合目标和薄弱项给出有限、具体的学习建议。不要换算官方成绩、CEFR 或推断语音能力。',
+            diagnostic=True, prompt='解读这份文字诊断，结合目标和薄弱项给出有限、具体的学习建议。不要换算官方成绩、CEFR 或推断语音能力。',
             material=json.dumps(facts, ensure_ascii=False), reference='只依据提供的小样本诊断，不改写本地判分。')
         answer = json.dumps({k: facts[k] for k in ('accuracy', 'level', 'weak_skills', 'profile')}, ensure_ascii=False)
         from .feedback import execute

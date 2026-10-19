@@ -36,13 +36,10 @@
   function renderActive(data){
     el('mock-active').hidden=false;el('mock-report').hidden=true;
     el('mock-title').textContent=`${data.exam_type.toUpperCase()} · ${data.template.title} · 题组 ${data.template.form.toUpperCase()}`;
-    el('mock-save-policy').textContent=data.template.notice+' '+data.save_policy;
+    el('mock-save-policy').textContent='计时继续，仅计已同步答案。';
     const material=el('mock-material');material.replaceChildren();
     if(data.template.material)text('p',data.template.material,material);
-    if(data.template.has_audio){
-      text('p',data.template.audio_notice,material).className='practice-note';
-      const audio=document.createElement('audio');audio.controls=true;audio.preload='metadata';audio.src=`/api/learning/mocks/${data.id}/audio`;audio.setAttribute('aria-label','原创听力样例');material.append(audio);
-    }
+
     const root=el('mock-questions');root.replaceChildren();
     data.template.questions.forEach(q=>{
       const field=document.createElement('fieldset');text('legend',q.prompt,field);
@@ -69,7 +66,6 @@
     text('p',`${data.exam_type.toUpperCase()} · ${data.template.title} · ${data.status==='expired'?'计时结束（仅计已同步答案）':'已交卷'}`,root);
     text('p',data.report.notice,root).className='practice-note';text('p',data.report.score_policy,root).className='practice-note';
     text('h4',data.report.objective_accuracy===null?'主观题：默认不评分':`客观题：${data.report.objective_correct}/${data.report.objective_total} · 正确率 ${data.report.objective_accuracy}%`,root);
-    if(data.template.transcript){const details=document.createElement('details');text('summary','查看听力转写',details);text('p',data.template.transcript,details);root.append(details);}
     data.report.details.forEach(detail=>{
       const q=data.template.questions.find(q=>q.id===detail.question_id),card=document.createElement('article');card.className='mock-report-item';
       text('h4',q.prompt,card);const answer=q.kind==='objective'?(q.options[detail.answer]??'未作答'):(detail.answer||'未作答');
@@ -98,6 +94,11 @@
   }
   async function open(id,restore=true){
     const data=await api('mocks/'+id);current=data.session;dirty={};pending=null;conflict=false;clearTimeout(debounce);
+    if(current.status==='active'&&current.template.section==='listening'){
+      el('mock-active').hidden=true;el('mock-report').hidden=true;
+      el('mock-resume').textContent='结束旧模考';
+      status('旧模考已下线，可结束并保留已同步答案。');return;
+    }
     if(current.status==='active'){
       if(restore){
         try{const cached=JSON.parse(sessionStorage.getItem(cacheKey())||'null');if(cached){dirty=cached.dirty||{};pending=cached.pending||null;conflict=cached.baseVersion!==current.version&&!pending;}}catch(_){}
@@ -130,7 +131,7 @@
     return flight;
   }
   function tick(){
-    if(!current||current.status!=='active')return;
+    if(!current||current.status!=='active'||current.template.section==='listening')return;
     const seconds=Math.max(0,Math.ceil((clockEnd-performance.now())/1000));
     el('mock-clock').textContent=`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`;
     if(seconds===0){
@@ -146,12 +147,13 @@
     const data=await api(`mocks?exam=${exam.id}&offset=${historyOffset}`);
     if(scope&&scope!==data.storage_scope){current=null;dirty={};pending=null;el('mock-active').hidden=true;el('mock-report').hidden=true;}
     scope=data.storage_scope;activeId=data.active_id;aiEnabled=data.ai_enabled;
+    el('mock-resume').textContent='继续模考';
     el('mock-resume').hidden=!activeId;el('mock-history-prev').disabled=historyOffset===0;el('mock-history-next').disabled=historyOffset+20>=data.total;
     const root=el('mock-history-content');root.replaceChildren();
     if(!data.history.length)text('p','还没有模考记录。',root);
     data.history.forEach(item=>{const row=document.createElement('article');row.className='history-item';
       text('p',`${exam.id.toUpperCase()} · ${item.title} · 题组 ${item.form.toUpperCase()} · ${item.status==='active'?'进行中':item.status==='expired'?'计时结束':'已交卷'} · ${item.objective_accuracy===null?'客观分未产生 / 无客观题':item.objective_accuracy+'% 客观正确率'}`,row);
-      const button=text('button',item.status==='active'?'恢复模考':'查看报告',row);button.type='button';button.onclick=()=>open(item.id).catch(error=>status(error.message));root.append(row);
+      const button=text('button',item.status==='active'?(item.section==='listening'?'结束旧模考':'继续模考'):'查看报告',row);button.type='button';button.onclick=()=>{if(item.status==='active'&&item.section==='listening')el('mock-resume').click();else open(item.id).catch(error=>status(error.message));};root.append(row);
     });
   }
   document.addEventListener('learning:exam',async event=>{
@@ -162,7 +164,7 @@
     try{
       const catalog=await api('mock-catalog/'+exam.id);if(version!==generation)return;
       const select=el('mock-template');select.replaceChildren();
-      catalog.templates.forEach(t=>{const option=text('option',`${t.title} · 题组 ${t.form.toUpperCase()} · ${t.duration_seconds/60} 分钟 · ${t.question_count} 题`,select);option.value=t.id;});
+      catalog.templates.filter(t=>t.section!=='listening').forEach(t=>{const option=text('option',`${t.title} · 题组 ${t.form.toUpperCase()} · ${t.duration_seconds/60} 分钟 · ${t.question_count} 题`,select);option.value=t.id;});
       await loadHistory();
     }catch(error){status(error.message);}
   });
@@ -172,7 +174,18 @@
     busy(true);try{const data=await api('mocks','POST',starting);starting=null;await open(data.session.id);await loadHistory();}
     catch(error){status(error.message+' 可用“恢复进行中的模考”继续。');await loadHistory().catch(()=>{});}finally{busy(false);}
   };
-  el('mock-resume').onclick=()=>{if(activeId)open(activeId).catch(error=>status(error.message));};
+  el('mock-resume').onclick=async()=>{
+    if(!activeId||flight||document.body.dataset.mockBusy==='true')return;
+    busy(true);
+    try{
+      await open(activeId);
+      if(current?.status==='active'&&current.template.section==='listening'&&confirm('结束旧模考并保留已同步答案？')){
+        busy(true);
+        await api(`mocks/${current.id}/submit`,'POST',{request_id:uuid(),expected_version:current.version,answers:{}});
+        await open(current.id,false);await loadHistory();
+      }
+    }catch(error){status(error.message);}finally{busy(false);}
+  };
   el('mock-answer-form').onsubmit=async event=>{
     event.preventDefault();if(!current||conflict)return;clearTimeout(debounce);
     if(flight)await flight;if(pending){status('请先重试同步未确认的请求，再交卷。');return;}
