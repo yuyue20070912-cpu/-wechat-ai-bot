@@ -622,14 +622,13 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 .learning-home-entry .learning-arrow{flex:none;display:grid;place-items:center;width:38px;height:38px;border-radius:50%;background:#191c22;color:#fff;font-size:19px}
 @media(max-width:420px){.learning-home-entry{padding:16px}.learning-home-entry strong{font-size:16px}.learning-home-entry .learning-arrow{width:34px;height:34px}}
 @media(prefers-reduced-motion:reduce){.learning-home-entry{transition:none}.learning-home-entry:hover{transform:none}}
-</style><link rel="stylesheet" href="/static/fishyeah-ui.css?v=1"><link rel="stylesheet" href="/static/chat-focus.css?v=5"></head><body><main><h1>fishyeah Chat</h1>
-<a class="learning-home-entry" href="/learning" aria-label="进入 AI 伴学，雅思、英语四级和六级学习中心"><span><strong>✦ AI 伴学</strong><small>雅思 · 四级 · 六级｜每日计划与专项练习</small></span><span class="learning-arrow" aria-hidden="true">↗</span></a>
+</style><link rel="stylesheet" href="/static/fishyeah-ui.css?v=1"><link rel="stylesheet" href="/static/chat-focus.css?v=6"></head><body><main><h1>fishyeah Chat</h1>
 <section id="auth"><h2 id="authTitle">登录</h2>
 <input id="phone" type="tel" inputmode="numeric" maxlength="11" autocomplete="tel" placeholder="中国大陆手机号">
 <input id="password" type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="密码（新账号至少10位，包含字母和数字）">
 <button id="loginBtn">登录</button><button id="registerBtn">注册新账号</button>
 <p style="font-size:13px;color:#666">当前不发送短信验证码，手机号未经验证；请勿使用他人的号码注册。</p></section>
-<section id="chatArea" class="hidden"><aside class="fish-side" id="fishSide"><div class="side-user">已登录：<span id="sideWho"></span></div><nav aria-label="学习导航"><a href="/learning" style="display:block;padding:14px 0;color:inherit;text-decoration:none;font-weight:600">✦ AI 伴学 →</a></nav><div id="sideContents"></div></aside><button class="fish-side-toggle" id="sideToggle" type="button" aria-expanded="false">☰ 菜单</button><p class="legacy-account">已登录：<span id="who"></span> <button id="logoutBtn">退出</button></p>
+<section id="chatArea" class="hidden"><a class="learning-home-entry" href="/learning" aria-label="进入 AI 伴学学习中心"><span class="learning-symbol" aria-hidden="true">✦</span><span class="learning-copy"><strong>AI 伴学</strong><small>雅思 · 四级 · 六级｜每日计划 · 专项练习</small></span><span class="learning-arrow" aria-hidden="true">›</span></a><aside class="fish-side" id="fishSide"><div class="side-user">已登录：<span id="sideWho"></span></div><nav aria-label="学习导航"><a href="/learning" style="display:block;padding:14px 0;color:inherit;text-decoration:none;font-weight:600">✦ AI 伴学 →</a></nav><div id="sideContents"></div></aside><button class="fish-side-toggle" id="sideToggle" type="button" aria-expanded="false">☰ 菜单</button><p class="legacy-account">已登录：<span id="who"></span> <button id="logoutBtn">退出</button></p>
 <details id="security"><summary>账号安全 · 修改密码</summary><input id="oldPassword" type="password" autocomplete="current-password" placeholder="当前密码"><input id="newPassword" type="password" autocomplete="new-password" placeholder="新密码（至少10位，包含不同类型字符）"><button id="changePasswordBtn">修改密码</button></details>
 <details id="membership"><summary>✦ fishyeah 会员中心</summary>
 <p class="member-intro">解锁更多对话额度 · 轻松使用 fishyeah Chat</p>
@@ -647,7 +646,7 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <p class="member-safe">当前使用个人收款码人工审核：请核对收款人及金额，付款后保存支付凭证；到账确认后才开通会员，不会自动扣费。</p>
 </details>
 <div class="ui-actions"><button id="themeBtn" type="button">◐ 切换主题</button><button id="newChatBtn" type="button">＋ 新对话</button></div><p id="quotaInfo">免费版每天可发送5条消息（UTC 00:00重置）</p><div id="chat"><div class="chat-row from-ai"><img class="chat-avatar" src="/app-icon" alt="fishyeah Chat"><div class="msg">你好，我是 fishyeah Chat。</div></div></div>
-<div class="chat-composer"><input id="message" aria-label="输入你的问题" placeholder="输入你的问题..."><button id="sendBtn" type="button">发送</button></div></section>
+<div class="chat-composer"><input id="message" aria-label="输入你的问题" placeholder="输入你的问题..."><button id="sendBtn" type="button" aria-label="发送消息" title="发送消息"><span aria-hidden="true">↑</span></button></div></section>
 <p id="notice" role="status"></p></main>
 <script src="/static/chat-stream.js"></script>
 <script>
