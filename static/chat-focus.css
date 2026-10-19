@@ -19,3 +19,42 @@ h1{padding-left:68px!important}
 #chat .chat-row.from-user .chat-avatar{display:none!important}
 #chat .chat-row.from-user{gap:0!important}
 #chat .chat-row.from-user .msg{max-width:min(85%,650px)!important;border-radius:12px 4px 12px 12px!important}
+
+
+/* Centered chat composer: input and send button share one responsive row. */
+#chatArea .chat-composer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: min(100%, 760px);
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 12px 0 max(16px, env(safe-area-inset-bottom));
+  flex: 0 0 auto;
+}
+#chatArea .chat-composer #message {
+  display: block!important;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto!important;
+  height: 52px!important;
+  margin: 0!important;
+  font-size: 16px!important;
+}
+#chatArea .chat-composer #sendBtn {
+  display: block!important;
+  flex: 0 0 auto;
+  width: 76px!important;
+  min-height: 52px!important;
+  height: 52px!important;
+  margin: 0!important;
+}
+@media (max-width: 600px) {
+  #chatArea .chat-composer {
+    width: 100%;
+    gap: 8px;
+    padding: 10px 2px max(14px, env(safe-area-inset-bottom));
+  }
+  #chatArea .chat-composer #sendBtn { width: 70px!important; }
+}
