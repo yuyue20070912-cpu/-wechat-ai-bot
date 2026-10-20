@@ -17,6 +17,7 @@ from psycopg_pool import ConnectionPool
 from flask import Flask, jsonify, request, send_from_directory, send_file, session, Response
 from openai import OpenAI
 from werkzeug.security import check_password_hash, generate_password_hash
+import password_recovery
 
 app = Flask(__name__)
 app.logger.setLevel("INFO")
@@ -105,6 +106,7 @@ def _create_schema():
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
             """)
+            password_recovery.create_schema(cur)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS daily_message_usage (
                     user_id BIGINT NOT NULL REFERENCES users(id),
@@ -630,7 +632,8 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <input id="phone" type="tel" inputmode="numeric" maxlength="11" autocomplete="tel" placeholder="中国大陆手机号">
 <input id="password" type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="密码（新账号至少10位，包含字母和数字）">
 <button id="loginBtn">登录</button><button id="registerBtn">注册新账号</button>
-<p style="font-size:13px;color:#666">当前不发送短信验证码，手机号未经验证；请勿使用他人的号码注册。</p></section>
+<a href="/forgot-password" style="display:inline-block;padding:12px 0;color:inherit">忘记密码？</a>
+<p style="font-size:13px;color:#666">注册暂不发送短信验证码，手机号未经验证；请勿使用他人的号码注册。</p></section>
 <section id="chatArea" class="hidden"><a class="learning-home-entry" href="/learning" aria-label="进入 AI 伴学学习中心"><span class="learning-symbol" aria-hidden="true">✦</span><span class="learning-copy"><strong>AI 伴学</strong><small>雅思 · 四级 · 六级｜每日计划 · 专项练习</small></span><span class="learning-arrow" aria-hidden="true">›</span></a><aside class="fish-side" id="fishSide"><div class="side-user">已登录：<span id="sideWho"></span></div><nav aria-label="学习导航"><a href="/learning" style="display:block;padding:14px 0;color:inherit;text-decoration:none;font-weight:600">✦ AI 伴学 →</a></nav><details id="appearance"><summary><svg aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M12 3a9 9 0 0 1 0 18"/></svg>外观设置<span id="appearanceChoice">跟随系统</span></summary><fieldset id="themeOptions"><legend>主题</legend><label><input type="radio" name="chat-theme" value="system" checked>跟随系统</label><label><input type="radio" name="chat-theme" value="light">浅色模式</label><label><input type="radio" name="chat-theme" value="dark">深色模式</label></fieldset></details><div id="sideContents"></div></aside><button class="fish-side-toggle" id="sideToggle" type="button" aria-expanded="false">☰ 菜单</button><p class="legacy-account">已登录：<span id="who"></span> <button id="logoutBtn">退出</button></p>
 <details id="security"><summary>账号安全 · 修改密码</summary><input id="oldPassword" type="password" autocomplete="current-password" placeholder="当前密码"><input id="newPassword" type="password" autocomplete="new-password" placeholder="新密码（至少10位，包含不同类型字符）"><button id="changePasswordBtn">修改密码</button></details>
 <details id="membership"><summary>✦ fishyeah 会员中心</summary>
@@ -796,13 +799,13 @@ def login():
             return jsonify(error="登录太频繁，请15分钟后重试"), 429
         with db_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT id,password_hash FROM users WHERE phone=%s", (phone,))
+                cur.execute("SELECT id,password_hash,session_version FROM users WHERE phone=%s", (phone,))
                 row = cur.fetchone()
         if not row or not check_password_hash(row[1], password):
             return jsonify(error="手机号或密码错误"), 401
         session.clear()
         session.permanent = True
-        session.update(user_id=row[0], phone=phone)
+        session.update(user_id=row[0], phone=phone, session_version=row[2])
         return jsonify(phone=phone)
     except Exception:
         app.logger.exception("Login failed")
@@ -830,7 +833,7 @@ def change_password():
                     return jsonify(error="当前密码不正确"), 401
                 if check_password_hash(row[0], new_password):
                     return jsonify(error="新密码不能与旧密码相同"), 400
-                cur.execute("UPDATE users SET password_hash=%s WHERE id=%s",
+                cur.execute("UPDATE users SET password_hash=%s,session_version=session_version+1 WHERE id=%s",
                             (generate_password_hash(new_password), session["user_id"]))
         session.clear()
         return jsonify(ok=True)
@@ -954,6 +957,8 @@ def chat():
             return jsonify(error=event["error"]), event.get("status", 502)
     return jsonify(error="AI 请求失败，请稍后再试"), 502
 
+
+password_recovery.register(app, db_connection, init_db, rate_limit)
 
 from learning import register as register_learning
 register_learning(app, db_connection, require_login, rate_limit,
