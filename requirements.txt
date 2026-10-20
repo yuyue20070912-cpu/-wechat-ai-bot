@@ -6,7 +6,3 @@ python-dotenv
 psycopg[binary]
 psycopg-pool
 qrcode[pil]
-
-alibabacloud-dypnsapi20170525>=2.0.0,<3
-alibabacloud-tea-openapi>=0.3.0,<1
-alibabacloud-tea-util>=0.3.0,<1

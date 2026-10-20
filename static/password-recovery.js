@@ -45,7 +45,7 @@ $('sendCode').onclick = async () => {
 };
 $('verifyForm').onsubmit = async event => {
   event.preventDefault();
-  if (!challenge || sentPhone !== $('phone').value.trim()) return message('请先获取短信验证码', true);
+  if (!challenge || sentPhone !== $('phone').value.trim()) return message('请先获取邮箱验证码', true);
   $('verifyCode').disabled = true; $('phone').readOnly = true; $('code').readOnly = true;
   try {
     const data = await api('verify', {phone: sentPhone, challenge, code: $('code').value.trim()});
@@ -78,5 +78,5 @@ $('restart').onclick = () => {
   $('resetForm').hidden = true; $('verifyForm').hidden = false;
   const steps = document.querySelectorAll('.steps li');
   steps[1].removeAttribute('aria-current'); steps[0].setAttribute('aria-current', 'step');
-  message('请重新获取短信验证码'); $('phone').focus();
+  message('请重新获取邮箱验证码'); $('phone').focus();
 };
