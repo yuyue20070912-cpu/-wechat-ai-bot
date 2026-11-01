@@ -107,15 +107,16 @@ def test_refund_original_day_and_idempotent(user):
     assert used(user)==0
 
 
-def test_paid_refund_and_exhaustion(user):
+def test_membership_does_not_extend_free_chat_quota(user):
     with bot.db_connection() as conn:
         sub=conn.execute("INSERT INTO subscriptions(user_id,plan,starts_at,ends_at,message_limit,payment_reference) VALUES (%s,'basic',NOW()-INTERVAL '1 day',NOW()+INTERVAL '29 days',1,'test-paid') RETURNING id",(user,)).fetchone()[0]
-    key=str(uuid4());assert bot.reserve_chat(user,key)==0
-    assert bot.reserve_chat(user,str(uuid4()))==-1
-    bot.settle_chat(user,key,False);bot.settle_chat(user,key,False)
+    # Chat stays on the free daily quota even when a learning membership exists.
+    for expected in (4, 3, 2, 1, 0):
+        assert bot.reserve_chat(user, str(uuid4())) == expected
+    assert bot.reserve_chat(user, str(uuid4())) == -1
     with bot.db_connection() as conn:
         assert conn.execute('SELECT used FROM subscriptions WHERE id=%s',(sub,)).fetchone()[0]==0
-    assert used(user)==0
+    assert used(user)==5
 
 
 def test_worker_crash_recovery(user):
@@ -172,7 +173,9 @@ def test_login_membership_payment_regression(monkeypatch,user):
     review={'decision':'approve','payment_reference':'test-reference-123'}
     assert c.post(f'/admin/membership/orders/{order_id}/review',json=review,headers=headers).status_code==200
     assert c.post(f'/admin/membership/orders/{order_id}/review',json=review,headers=headers).status_code==409
-    assert c.get('/account/usage').json['remaining']==300
+    usage=c.get('/account/usage').json
+    assert usage['remaining']==5 and usage['chat_free'] is True
+    assert usage['membership']['learning_remaining']==300
     assert c.post('/auth/change-password',json={'old_password':'testPass12345','new_password':'nextPass12345'}).status_code==200
     assert c.post('/chat',json={'message':'hi'}).status_code==401
 
@@ -196,18 +199,19 @@ def test_completed_event_does_not_wait_for_upstream_eof(monkeypatch,user):
     assert used(user)==1 and stream.closed
 
 
-def test_recovery_batches_paid_and_free_without_double_refund(user):
+def test_recovery_batches_free_chat_without_touching_membership(user):
     key=str(uuid4());bot.reserve_chat(user,key)
     with bot.db_connection() as conn:
         sub=conn.execute("INSERT INTO subscriptions(user_id,plan,starts_at,ends_at,message_limit,payment_reference) VALUES (%s,'basic',NOW()-INTERVAL '1 day',NOW()+INTERVAL '1 day',300,'batch-paid') RETURNING id",(user,)).fetchone()[0]
-    for _ in range(104):bot.reserve_chat(user,str(uuid4()))
+    # Free chat allows only 5/day; remaining attempts are rejected and not pending.
+    rejected=0
+    for _ in range(10):
+        if bot.reserve_chat(user,str(uuid4())) < 0:
+            rejected += 1
+    assert used(user)==5 and rejected==6
     with bot.db_connection() as conn:
-        conn.execute("UPDATE chat_requests SET created_at=NOW()-INTERVAL '11 minutes'")
+        conn.execute("UPDATE chat_requests SET created_at=NOW()-INTERVAL '11 minutes' WHERE status='pending'")
     bot.recover_stale_chats()
-    with bot.db_connection() as conn:
-        assert conn.execute("SELECT COUNT(*) FROM chat_requests WHERE status='pending'").fetchone()[0]==5
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        list(pool.map(lambda _:bot.recover_stale_chats(),range(3)))
     bot.recover_stale_chats()
     assert used(user)==0
     with bot.db_connection() as conn:

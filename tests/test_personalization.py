@@ -248,7 +248,8 @@ def test_auto_mistake_is_atomic_with_feedback(user,ai,monkeypatch):
         patch.setattr(reviews,'capture_attempt',lambda *args,**kwargs:(_ for _ in ()).throw(RuntimeError()))
         assert paid_practice(c).status_code==502
     with bot.db_connection() as conn:
-        assert conn.execute('SELECT SUM(used) FROM daily_message_usage').fetchone()[0]==1
+        assert conn.execute('SELECT SUM(used) FROM subscriptions').fetchone()[0]==1
+        assert conn.execute('SELECT COALESCE(SUM(used),0) FROM daily_message_usage').fetchone()[0]==0
     assert len(items(c))==1
 
 
@@ -320,7 +321,8 @@ def test_ai_diagnostic_failure_refunds_and_consumes_shared_budget(user,ai,monkey
     assert post(c,path).status_code==409
     assert paid_practice(c).status_code==429
     with bot.db_connection() as conn:
-        assert conn.execute('SELECT SUM(used) FROM daily_message_usage').fetchone()[0]==0
+        assert conn.execute('SELECT COALESCE(SUM(used),0) FROM daily_message_usage').fetchone()[0]==0
+        assert conn.execute('SELECT COALESCE(SUM(used),0) FROM subscriptions').fetchone()[0]==0
         assert conn.execute('SELECT SUM(calls) FROM learning_user_daily_usage').fetchone()[0]==1
 
 

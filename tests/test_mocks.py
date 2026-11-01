@@ -191,7 +191,8 @@ def test_ai_concurrent_request_and_failure_refund(user,ai,monkeypatch):
         assert first.result(timeout=5).status_code==502
     assert call(c,path).status_code==409
     with bot.db_connection() as conn:
-        assert conn.execute('SELECT SUM(used) FROM daily_message_usage').fetchone()[0]==0
+        assert conn.execute('SELECT COALESCE(SUM(used),0) FROM daily_message_usage').fetchone()[0]==0
+        assert conn.execute('SELECT COALESCE(SUM(used),0) FROM subscriptions').fetchone()[0]==0
         assert conn.execute('SELECT SUM(calls) FROM learning_user_daily_usage').fetchone()[0]==1
 
 
