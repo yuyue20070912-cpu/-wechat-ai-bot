@@ -15,7 +15,7 @@ def execute(connection, rate_limit, ai_provider, model, question, answer, reques
         limits = config.daily_limits()
         if not rate_limit('learning:ai', str(session['user_id']), 12, minutes=1):
             return jsonify(error='提交过于频繁，请稍后重试'), 429
-        selected_model = os.getenv('LEARNING_MODEL') or model()
+        selected_model = os.getenv('LEARNING_MODEL') or os.getenv('DEEPSEEK_MODEL') or model()
         feedback = accounting.reserve(connection, session['user_id'], request_id,
             question, answer.strip(), selected_model, limits, free_limit())
         if feedback is not None:

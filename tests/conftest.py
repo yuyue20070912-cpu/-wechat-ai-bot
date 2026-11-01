@@ -35,12 +35,14 @@ def ai(monkeypatch):
     fake = NS()
     def create(**kwargs):
         calls.append(kwargs)
-        return NS(status='completed', output_text=json.dumps(FEEDBACK), usage=NS(input_tokens=200, output_tokens=150))
+        return NS(
+            choices=[NS(finish_reason='stop', message=NS(content=json.dumps(FEEDBACK)))],
+            usage=NS(prompt_tokens=200, completion_tokens=150),
+        )
     def with_options(**kwargs):
         options.append(kwargs)
         return fake
     fake.with_options = with_options
-    fake.responses = NS(create=create)
+    fake.chat = NS(completions=NS(create=create))
     monkeypatch.setattr(bot, 'ai_client', lambda: fake)
     return NS(client=fake, calls=calls, options=options)
-

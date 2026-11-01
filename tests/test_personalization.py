@@ -121,10 +121,12 @@ def test_daily_plan_uses_goal_level_diagnostic_and_ai_weakness(user, ai):
     c.put('/api/learning/profiles/ielts', json=dict(target_score=7.5,current_level='beginner'),headers=headers(c))
     diagnose(c, correct=False)
     feedback = dict(FEEDBACK, score=40)
-    original = ai.client.responses.create
+    original = ai.client.chat.completions.create
     def create(**kwargs):
-        response = original(**kwargs); response.output_text=json.dumps(feedback); return response
-    ai.client.responses.create = create
+        response = original(**kwargs)
+        response.choices[0].message.content = json.dumps(feedback)
+        return response
+    ai.client.chat.completions.create = create
     assert paid_practice(c, 'ielts-vocabulary-1-v1').status_code == 200
     p = plan(c)
     assert p['inputs']['profile'] == dict(target_score=7.5,current_level='beginner')
@@ -234,10 +236,12 @@ def test_ai_mistake_snapshot_manual_save_and_self_rating(user,ai):
 
 
 def test_auto_mistake_is_atomic_with_feedback(user,ai,monkeypatch):
-    c=client(user); original=ai.client.responses.create
+    c=client(user); original=ai.client.chat.completions.create
     def create(**kwargs):
-        response=original(**kwargs);response.output_text=json.dumps(dict(FEEDBACK,score=35));return response
-    ai.client.responses.create=create
+        response=original(**kwargs)
+        response.choices[0].message.content=json.dumps(dict(FEEDBACK,score=35))
+        return response
+    ai.client.chat.completions.create=create
     assert paid_practice(c).status_code==200
     assert len(items(c))==1
     with monkeypatch.context() as patch:
@@ -311,7 +315,7 @@ def test_ai_diagnostic_failure_refunds_and_consumes_shared_budget(user,ai,monkey
     monkeypatch.setenv('LEARNING_DIAGNOSTIC_AI_ENABLED','1')
     monkeypatch.setenv('LEARNING_USER_DAILY_CALLS','1')
     c=client(user); diag=diagnose(c).json['diagnostic']; path='diagnostic-results/'+diag['request_id']+'/ai'
-    ai.client.responses.create=lambda **kwargs:(_ for _ in ()).throw(TimeoutError())
+    ai.client.chat.completions.create=lambda **kwargs:(_ for _ in ()).throw(TimeoutError())
     assert post(c,path).status_code==502
     assert post(c,path).status_code==409
     assert paid_practice(c).status_code==429
@@ -323,10 +327,10 @@ def test_ai_diagnostic_failure_refunds_and_consumes_shared_budget(user,ai,monkey
 def test_ai_diagnostic_concurrency_is_one_call(user,ai,monkeypatch):
     monkeypatch.setenv('LEARNING_DIAGNOSTIC_AI_ENABLED','1')
     c=client(user); diag=diagnose(c).json['diagnostic']; path='diagnostic-results/'+diag['request_id']+'/ai'
-    started,release=Event(),Event(); original=ai.client.responses.create
+    started,release=Event(),Event(); original=ai.client.chat.completions.create
     def create(**kwargs):
         started.set();assert release.wait(5);return original(**kwargs)
-    ai.client.responses.create=create
+    ai.client.chat.completions.create=create
     with ThreadPoolExecutor(max_workers=2) as pool:
         first=pool.submit(lambda:post(client(user),path));assert started.wait(5)
         try: assert post(client(user),path).status_code==409

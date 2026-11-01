@@ -26,14 +26,14 @@ def test_learning_browser(user, ai, monkeypatch, width, height, color, engine):
     thread.start()
     origin = f'http://127.0.0.1:{server.server_port}'
     c = bot.app.test_client()
-    original_create = ai.client.responses.create
+    original_create = ai.client.chat.completions.create
     def create(**kwargs):
         result = original_create(**kwargs)
-        feedback = json.loads(result.output_text)
+        feedback = json.loads(result.choices[0].message.content)
         feedback['summary'] = '<img src=x onerror="window.unsafeFeedback=true">'
-        result.output_text = json.dumps(feedback)
+        result.choices[0].message.content = json.dumps(feedback)
         return result
-    ai.client.responses.create = create
+    ai.client.chat.completions.create = create
     with c.session_transaction() as s:
         s['user_id'] = user
         s['phone'] = '13800000000'

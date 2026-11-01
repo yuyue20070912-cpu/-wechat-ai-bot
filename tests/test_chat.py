@@ -32,14 +32,21 @@ class Stream:
         self.closed = True
 
 
+def chunk(text=None, finish_reason=None):
+    return NS(choices=[NS(delta=NS(content=text), finish_reason=finish_reason)])
+
+
 def install(monkeypatch, events):
     stream = Stream(events)
     def create(**kwargs):
         assert kwargs['stream'] is True
         assert kwargs['model'] == bot.MODEL
-        assert kwargs['instructions'] == bot.CHAT_SYSTEM_PROMPT
+        assert kwargs['messages'] == [
+            {'role': 'system', 'content': bot.CHAT_SYSTEM_PROMPT},
+            {'role': 'user', 'content': kwargs['messages'][1]['content']},
+        ]
         return stream
-    monkeypatch.setattr(bot, 'ai_client', lambda: NS(responses=NS(create=create)))
+    monkeypatch.setattr(bot, 'ai_client', lambda: NS(chat=NS(completions=NS(create=create))))
     return stream
 
 
@@ -52,7 +59,7 @@ def frames(response):
 
 
 def test_success_incremental_and_duplicate(monkeypatch, user):
-    stream = install(monkeypatch, [NS(type='response.output_text.delta',delta='你好'), NS(type='response.completed')])
+    stream = install(monkeypatch, [chunk('你好'), chunk(finish_reason='stop')])
     key=uuid4(); c=client(user); response=post(c,key)
     iterator=iter(response.response)
     assert json.loads(next(iterator))['type']=='ready'
@@ -65,7 +72,7 @@ def test_success_incremental_and_duplicate(monkeypatch, user):
     assert used(user)==1 and stream.closed
 
 
-@pytest.mark.parametrize('events', [[], [RuntimeError('timeout')], [NS(type='response.failed')], [NS(type='response.incomplete')], [NS(type='response.output_text.delta',delta='partial')], [NS(type='response.completed')]])
+@pytest.mark.parametrize('events', [[], [RuntimeError('timeout')], [chunk(finish_reason='content_filter')], [chunk('partial', finish_reason='length')], [chunk('partial')], [chunk(finish_reason='stop')]])
 def test_failures_refund(monkeypatch, user, events):
     stream=install(monkeypatch,events)
     assert frames(post(client(user)))[-1]['type']=='error'
@@ -73,7 +80,7 @@ def test_failures_refund(monkeypatch, user, events):
 
 
 def test_disconnect_refund(monkeypatch,user):
-    stream=install(monkeypatch,[NS(type='response.output_text.delta',delta='partial'),NS(type='response.completed')])
+    stream=install(monkeypatch,[chunk('partial'),chunk(finish_reason='stop')])
     response=post(client(user)); it=iter(response.response)
     next(it);next(it)
     assert used(user)==1
@@ -145,7 +152,7 @@ def test_refund_transaction_rolls_back(user,monkeypatch):
 def test_auth_validation_and_json_compatibility(monkeypatch,user):
     assert bot.app.test_client().post('/chat',json={'message':'hello'}).status_code==401
     assert client(user).post('/chat',json={'message':''}).status_code==400
-    install(monkeypatch,[NS(type='response.output_text.delta',delta='你好'),NS(type='response.completed')])
+    install(monkeypatch,[chunk('你好'),chunk(finish_reason='stop')])
     assert client(user).post('/chat',json={'message':'hello'}).json=={'reply':'你好','remaining':4}
 
 
@@ -184,7 +191,7 @@ def test_endpoint_refund_outage_recovers(monkeypatch,user):
 
 
 def test_completed_event_does_not_wait_for_upstream_eof(monkeypatch,user):
-    stream=install(monkeypatch,[NS(type='response.output_text.delta',delta='done'),NS(type='response.completed'),RuntimeError('must not read past completion')])
+    stream=install(monkeypatch,[chunk('done'),chunk(finish_reason='stop'),RuntimeError('must not read past completion')])
     assert frames(post(client(user)))[-1]['type']=='done'
     assert used(user)==1 and stream.closed
 
@@ -218,19 +225,16 @@ def test_invalid_chat_json_does_not_charge(user):
 @pytest.mark.parametrize('streaming', [True, False])
 @pytest.mark.parametrize('message', [
     '你是谁', '你叫什么名字', '你是什么AI',
-    '你的底层模型是什么？', '使用了什么开发技术？', '你是否使用 OpenAI？',
+    '你的底层模型是什么？', '使用了什么开发技术？', '你是否使用 DeepSeek？',
     '帮我学习英语',
 ])
 def test_identity_instructions_sent_to_upstream(monkeypatch, user, streaming, message):
     calls = []
-    upstream = Stream([
-        NS(type='response.output_text.delta', delta='模型返回的原始文本'),
-        NS(type='response.completed'),
-    ])
+    upstream = Stream([chunk('模型返回的原始文本'), chunk(finish_reason='stop')])
     def create(**kwargs):
         calls.append(kwargs)
         return upstream
-    monkeypatch.setattr(bot, 'ai_client', lambda: NS(responses=NS(create=create)))
+    monkeypatch.setattr(bot, 'ai_client', lambda: NS(chat=NS(completions=NS(create=create))))
     response = client(user).post('/chat', json={
         'message': '  ' + message + '  ', 'stream': streaming,
         'request_id': str(uuid4()),
@@ -242,7 +246,12 @@ def test_identity_instructions_sent_to_upstream(monkeypatch, user, streaming, me
                           dict(type='done', remaining=4)]
     else:
         assert response.json == dict(reply='模型返回的原始文本', remaining=4)
-    assert calls == [dict(model=bot.MODEL, instructions=bot.CHAT_SYSTEM_PROMPT,
-                          input=message, stream=True)]
+    assert calls == [dict(
+        model=bot.MODEL,
+        messages=[
+            {'role': 'system', 'content': bot.CHAT_SYSTEM_PROMPT},
+            {'role': 'user', 'content': message},
+        ],
+        stream=True,
+    )]
     assert used(user) == 1 and upstream.closed
-
