@@ -65,11 +65,11 @@ def test_success_incremental_and_duplicate(monkeypatch, user):
     assert json.loads(next(iterator))['type']=='ready'
     assert used(user)==0  # ready is delivered before any database/API work
     assert json.loads(next(iterator))==dict(type='delta',text='你好')
-    assert used(user)==1
+    assert used(user)==0  # Chat does not consume the AI 伴学 free allowance
     assert json.loads(next(iterator))['type']=='done'
     response.close()
     assert frames(post(c,key))[-1]['type']=='error'
-    assert used(user)==1 and stream.closed
+    assert used(user)==0 and stream.closed
 
 
 @pytest.mark.parametrize('events', [[], [RuntimeError('timeout')], [chunk(finish_reason='content_filter')], [chunk('partial', finish_reason='length')], [chunk('partial')], [chunk(finish_reason='stop')]])
@@ -83,7 +83,7 @@ def test_disconnect_refund(monkeypatch,user):
     stream=install(monkeypatch,[chunk('partial'),chunk(finish_reason='stop')])
     response=post(client(user)); it=iter(response.response)
     next(it);next(it)
-    assert used(user)==1
+    assert used(user)==0
     response.close()
     assert used(user)==0 and stream.closed
 
@@ -92,10 +92,10 @@ def test_duplicate_and_limit_concurrency(user):
     key=str(uuid4())
     with ThreadPoolExecutor(max_workers=8) as pool:
         result=list(pool.map(lambda _:bot.reserve_chat(user,key),range(8)))
-    assert result.count(4)==1 and result.count(None)==7 and used(user)==1
+    assert result.count(0)==1 and result.count(None)==7 and used(user)==0
     with ThreadPoolExecutor(max_workers=8) as pool:
         result=list(pool.map(lambda _:bot.reserve_chat(user,str(uuid4())),range(10)))
-    assert sum(r>=0 for r in result)==4 and used(user)==5
+    assert result.count(0)==10 and used(user)==0
 
 
 def test_refund_original_day_and_idempotent(user):
@@ -107,15 +107,15 @@ def test_refund_original_day_and_idempotent(user):
     assert used(user)==0
 
 
-def test_paid_refund_and_exhaustion(user):
+def test_chat_ignores_membership_and_learning_allowance(user):
     with bot.db_connection() as conn:
         sub=conn.execute("INSERT INTO subscriptions(user_id,plan,starts_at,ends_at,message_limit,payment_reference) VALUES (%s,'basic',NOW()-INTERVAL '1 day',NOW()+INTERVAL '29 days',1,'test-paid') RETURNING id",(user,)).fetchone()[0]
-    key=str(uuid4());assert bot.reserve_chat(user,key)==0
-    assert bot.reserve_chat(user,str(uuid4()))==-1
-    bot.settle_chat(user,key,False);bot.settle_chat(user,key,False)
+        conn.execute("INSERT INTO daily_message_usage (user_id,usage_day,used) VALUES (%s,(NOW() AT TIME ZONE 'UTC')::date,5)",(user,))
+    for _ in range(6):
+        assert bot.reserve_chat(user, str(uuid4())) == 0
     with bot.db_connection() as conn:
         assert conn.execute('SELECT used FROM subscriptions WHERE id=%s',(sub,)).fetchone()[0]==0
-    assert used(user)==0
+    assert used(user)==5
 
 
 def test_worker_crash_recovery(user):
@@ -126,34 +126,19 @@ def test_worker_crash_recovery(user):
     assert used(user)==0
 
 
-def test_refund_transaction_rolls_back(user,monkeypatch):
+def test_chat_settlement_does_not_touch_learning_allowance(user):
+    with bot.db_connection() as conn:
+        conn.execute("INSERT INTO daily_message_usage (user_id,usage_day,used) VALUES (%s,(NOW() AT TIME ZONE 'UTC')::date,2)",(user,))
     key=str(uuid4());bot.reserve_chat(user,key)
-    real=bot.db_connection
-    from contextlib import contextmanager
-    @contextmanager
-    def broken():
-        with real() as conn:
-            class Cursor:
-                def __enter__(self): return self
-                def __exit__(self,*args): pass
-                def execute(self,sql,args):
-                    if 'UPDATE daily_message_usage' in sql: raise RuntimeError('database unavailable')
-                    self.cur=conn.execute(sql,args)
-                def fetchone(self): return self.cur.fetchone()
-            yield NS(cursor=Cursor)
-    with monkeypatch.context() as m:
-        m.setattr(bot,'db_connection',broken)
-        with pytest.raises(RuntimeError):bot.settle_chat(user,key,False)
-    assert used(user)==1
-    bot.settle_chat(user,key,False)
-    assert used(user)==0
+    bot.settle_chat(user,key,False);bot.settle_chat(user,key,False)
+    assert used(user)==2
 
 
 def test_auth_validation_and_json_compatibility(monkeypatch,user):
     assert bot.app.test_client().post('/chat',json={'message':'hello'}).status_code==401
     assert client(user).post('/chat',json={'message':''}).status_code==400
     install(monkeypatch,[chunk('你好'),chunk(finish_reason='stop')])
-    assert client(user).post('/chat',json={'message':'hello'}).json=={'reply':'你好','remaining':4}
+    assert client(user).post('/chat',json={'message':'hello'}).json=={'reply':'你好','remaining':None}
 
 
 def test_login_membership_payment_regression(monkeypatch,user):
@@ -162,7 +147,9 @@ def test_login_membership_payment_regression(monkeypatch,user):
     assert c.post('/auth/register',json={'phone':'13900000000','password':'testPass12345'}).status_code==201
     assert c.post('/auth/logout').status_code==200
     assert c.post('/auth/login',json={'phone':'13900000000','password':'testPass12345'}).status_code==200
-    assert c.get('/account/usage').json['remaining']==5
+    usage=c.get('/account/usage').json
+    assert usage['chat_unlimited'] is True and usage['remaining'] is None
+    assert usage['learning_free_remaining']==5
     order=c.post('/membership/orders',json={'plan':'basic','payment_method':'alipay'})
     assert order.status_code==201
     order_id=order.json['order_id']
@@ -172,7 +159,10 @@ def test_login_membership_payment_regression(monkeypatch,user):
     review={'decision':'approve','payment_reference':'test-reference-123'}
     assert c.post(f'/admin/membership/orders/{order_id}/review',json=review,headers=headers).status_code==200
     assert c.post(f'/admin/membership/orders/{order_id}/review',json=review,headers=headers).status_code==409
-    assert c.get('/account/usage').json['remaining']==300
+    usage=c.get('/account/usage').json
+    assert usage['chat_unlimited'] is True and usage['chat_free'] is True
+    assert usage['learning_free_remaining']==5
+    assert usage['membership']['learning_remaining']==300
     assert c.post('/auth/change-password',json={'old_password':'testPass12345','new_password':'nextPass12345'}).status_code==200
     assert c.post('/chat',json={'message':'hi'}).status_code==401
 
@@ -183,31 +173,32 @@ def test_endpoint_refund_outage_recovers(monkeypatch,user):
         m.setattr(bot,'settle_chat',lambda *args: (_ for _ in ()).throw(RuntimeError('database down')))
         response=post(client(user))
         assert frames(response)[-1]['type']=='error'
-    assert used(user)==1
+    assert used(user)==0
     with bot.db_connection() as conn:
         conn.execute("UPDATE chat_requests SET created_at=NOW()-INTERVAL '11 minutes'")
+        assert conn.execute("SELECT COUNT(*) FROM chat_requests WHERE status='pending'").fetchone()[0]==1
     bot.recover_stale_chats()
     assert used(user)==0
+    with bot.db_connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM chat_requests WHERE status='pending'").fetchone()[0]==0
 
 
 def test_completed_event_does_not_wait_for_upstream_eof(monkeypatch,user):
     stream=install(monkeypatch,[chunk('done'),chunk(finish_reason='stop'),RuntimeError('must not read past completion')])
     assert frames(post(client(user)))[-1]['type']=='done'
-    assert used(user)==1 and stream.closed
+    assert used(user)==0 and stream.closed
 
 
-def test_recovery_batches_paid_and_free_without_double_refund(user):
+def test_recovery_batches_free_chat_without_touching_membership(user):
     key=str(uuid4());bot.reserve_chat(user,key)
     with bot.db_connection() as conn:
         sub=conn.execute("INSERT INTO subscriptions(user_id,plan,starts_at,ends_at,message_limit,payment_reference) VALUES (%s,'basic',NOW()-INTERVAL '1 day',NOW()+INTERVAL '1 day',300,'batch-paid') RETURNING id",(user,)).fetchone()[0]
-    for _ in range(104):bot.reserve_chat(user,str(uuid4()))
+    for _ in range(10):
+        assert bot.reserve_chat(user,str(uuid4()))==0
+    assert used(user)==0
     with bot.db_connection() as conn:
-        conn.execute("UPDATE chat_requests SET created_at=NOW()-INTERVAL '11 minutes'")
+        conn.execute("UPDATE chat_requests SET created_at=NOW()-INTERVAL '11 minutes' WHERE status='pending'")
     bot.recover_stale_chats()
-    with bot.db_connection() as conn:
-        assert conn.execute("SELECT COUNT(*) FROM chat_requests WHERE status='pending'").fetchone()[0]==5
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        list(pool.map(lambda _:bot.recover_stale_chats(),range(3)))
     bot.recover_stale_chats()
     assert used(user)==0
     with bot.db_connection() as conn:
@@ -243,9 +234,9 @@ def test_identity_instructions_sent_to_upstream(monkeypatch, user, streaming, me
     if streaming:
         events = frames(response)
         assert events == [dict(type='ready'), dict(type='delta', text='模型返回的原始文本'),
-                          dict(type='done', remaining=4)]
+                          dict(type='done', remaining=None)]
     else:
-        assert response.json == dict(reply='模型返回的原始文本', remaining=4)
+        assert response.json == dict(reply='模型返回的原始文本', remaining=None)
     assert calls == [dict(
         model=bot.MODEL,
         messages=[
@@ -254,4 +245,4 @@ def test_identity_instructions_sent_to_upstream(monkeypatch, user, streaming, me
         ],
         stream=True,
     )]
-    assert used(user) == 1 and upstream.closed
+    assert used(user) == 0 and upstream.closed

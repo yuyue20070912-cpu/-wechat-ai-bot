@@ -1,7 +1,8 @@
-"""Atomic learning ledger sharing existing free/subscription message allowances.
+"""Atomic learning ledger: 5 free AI 伴学 uses per UTC day, then membership credits.
 
 Provider-call budgets are never refunded (even a failed call may cost money).
-Message allowances are refunded on failure, exactly once and against original day.
+The consumed allowance (free daily or membership) is refunded once on failure.
+fishyeah Chat never consumes this ledger.
 """
 from psycopg.errors import UniqueViolation
 from psycopg.types.json import Jsonb
@@ -69,21 +70,27 @@ def reserve(connection, user_id, request_id, question, answer, model, limits, fr
                 (user_id, day, user_limit)).fetchone()
             if not user_budget:
                 raise PracticeError('今日 AI 练习调用次数已用完，请明天再试')
+            # Members spend paid credits. Everyone else gets FREE daily AI 伴学 uses.
             sub = conn.execute('''SELECT id FROM subscriptions
                 WHERE user_id=%s AND starts_at <= NOW() AND ends_at > NOW()
                 ORDER BY ends_at DESC,id DESC LIMIT 1 FOR UPDATE''', (user_id,)).fetchone()
+            subscription_id = None
             if sub:
                 available = conn.execute('''UPDATE subscriptions SET used=used+1
                     WHERE id=%s AND used < message_limit RETURNING id''', (sub[0],)).fetchone()
+                if not available:
+                    raise PracticeError('当前 AI 伴学额度已用完，请续费后再试', 429)
+                subscription_id = sub[0]
             else:
                 available = conn.execute('''INSERT INTO daily_message_usage(user_id,usage_day,used)
                     VALUES (%s,%s,1) ON CONFLICT (user_id,usage_day)
                     DO UPDATE SET used=daily_message_usage.used+1
-                    WHERE daily_message_usage.used < %s RETURNING used''', (user_id, day, free_limit)).fetchone()
-            if not available:
-                raise PracticeError('当前消息额度已用完，请等待重置或续费')
+                    WHERE daily_message_usage.used < %s RETURNING used''',
+                    (user_id, day, free_limit)).fetchone()
+                if not available:
+                    raise PracticeError('今日 AI 伴学免费 5 条已用完，请开通会员后继续', 402)
             conn.execute('''UPDATE learning_attempts SET subscription_id=%s
-                WHERE user_id=%s AND request_id=%s''', (sub[0] if sub else None, user_id, request_id))
+                WHERE user_id=%s AND request_id=%s''', (subscription_id, user_id, request_id))
         return None
     except UniqueViolation:
         raise PracticeError('已有一道练习正在分析，请稍后再试', 409) from None
@@ -122,15 +129,17 @@ def usage(connection, user_id, user_limit, free_limit):
     with connection() as conn:
         calls = conn.execute('''SELECT calls FROM learning_user_daily_usage
             WHERE user_id=%s AND usage_day=(NOW() AT TIME ZONE 'UTC')::date''', (user_id,)).fetchone()
-        sub = conn.execute('''SELECT message_limit-used FROM subscriptions
+        sub = conn.execute('''SELECT message_limit-used, plan FROM subscriptions
             WHERE user_id=%s AND starts_at <= NOW() AND ends_at > NOW()
             ORDER BY ends_at DESC,id DESC LIMIT 1''', (user_id,)).fetchone()
         if sub is not None:
-            remaining = sub[0]
+            remaining, plan = sub[0], sub[1]
         else:
             row = conn.execute('''SELECT used FROM daily_message_usage
                 WHERE user_id=%s AND usage_day=(NOW() AT TIME ZONE 'UTC')::date''', (user_id,)).fetchone()
             remaining = max(0, free_limit - (row[0] if row else 0))
+            plan = None
     used = calls[0] if calls else 0
     return dict(daily_call_limit=user_limit, calls_used=used, calls_remaining=max(0, user_limit-used),
-                message_remaining=max(0, remaining), reset='UTC 00:00')
+                message_remaining=max(0, remaining), membership_plan=plan,
+                membership_required=True, reset='UTC 00:00')

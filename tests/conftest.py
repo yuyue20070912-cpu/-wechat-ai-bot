@@ -1,5 +1,6 @@
 import json
 from types import SimpleNamespace as NS
+from uuid import uuid4
 
 import pytest
 import bot
@@ -28,9 +29,20 @@ def user():
 
 
 
+def grant_learning_membership(user_id, messages=1000, plan='pro', reference=None):
+    """AI 伴学 requires paid membership; Chat free quota stays separate."""
+    with bot.db_connection() as conn:
+        return conn.execute(
+            """INSERT INTO subscriptions(user_id,plan,starts_at,ends_at,message_limit,payment_reference)
+               VALUES (%s,%s,NOW()-INTERVAL '1 day',NOW()+INTERVAL '30 days',%s,%s) RETURNING id""",
+            (user_id, plan, messages, reference or f'test-learning-{user_id}-{uuid4()}'),
+        ).fetchone()[0]
+
+
 @pytest.fixture
-def ai(monkeypatch):
+def ai(monkeypatch, user):
     monkeypatch.setenv('LEARNING_AI_ENABLED', '1')
+    grant_learning_membership(user)
     calls, options = [], []
     fake = NS()
     def create(**kwargs):

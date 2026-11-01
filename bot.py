@@ -39,7 +39,8 @@ CHAT_SYSTEM_PROMPT = """你是 fishyeah Chat，用户的 AI 智能助手。
 区分产品名称和模型供应商，不要否认使用 DeepSeek，也不要编造未提供的具体模型版本或技术细节。
 对其他问题正常提供帮助，不必重复自我介绍。
 """
-FREE_DAILY_MESSAGES = 5  # UTC calendar day
+FREE_DAILY_MESSAGES = 5  # AI 伴学 free uses per UTC day; Chat is unlimited
+# Paid plans add AI 伴学 credits after the free daily allowance is used up.
 PAID_PLANS = {"basic": {"price_cny_fen": 990, "messages": 300}, "pro": {"price_cny_fen": 1990, "messages": 1000}}
 PHONE_PATTERN = re.compile(r"^1[3-9]\d{9}$")
 def payments_ready():
@@ -166,34 +167,21 @@ def _create_schema():
 
 
 def recover_stale_chats():
-    """Bound recovery work and refund a batch in one atomic database round trip."""
+    """Close abandoned chat requests. Chat does not consume AI 伴学 quota."""
     with db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                WITH expired AS (
-                    UPDATE chat_requests SET status='refunded'
-                    WHERE (user_id,request_id) IN (
-                        SELECT user_id,request_id FROM chat_requests
-                        WHERE status='pending' AND created_at < NOW()-INTERVAL '10 minutes'
-                        ORDER BY created_at LIMIT 100 FOR UPDATE SKIP LOCKED
-                    )
-                    RETURNING user_id,usage_day,subscription_id
-                ), free_refunds AS (
-                    UPDATE daily_message_usage d SET used=GREATEST(0,d.used-r.amount)
-                    FROM (SELECT user_id,usage_day,COUNT(*) AS amount FROM expired
-                          WHERE subscription_id IS NULL GROUP BY user_id,usage_day) r
-                    WHERE d.user_id=r.user_id AND d.usage_day=r.usage_day
-                    RETURNING d.user_id
+                UPDATE chat_requests SET status='refunded'
+                WHERE (user_id,request_id) IN (
+                    SELECT user_id,request_id FROM chat_requests
+                    WHERE status='pending' AND created_at < NOW()-INTERVAL '10 minutes'
+                    ORDER BY created_at LIMIT 100 FOR UPDATE SKIP LOCKED
                 )
-                UPDATE subscriptions s SET used=GREATEST(0,s.used-r.amount)
-                FROM (SELECT subscription_id,COUNT(*) AS amount FROM expired
-                      WHERE subscription_id IS NOT NULL GROUP BY subscription_id) r
-                WHERE s.id=r.subscription_id
             """)
 
 
 def reserve_chat(user_id, request_id):
-    """The ledger and allowance update commit together, including duplicate detection."""
+    """fishyeah Chat is unlimited and free. It never touches learning allowances."""
     recover_stale_chats()
     with db_connection() as conn:
         with conn.cursor() as cur:
@@ -202,45 +190,23 @@ def reserve_chat(user_id, request_id):
                 VALUES (%s,%s,(NOW() AT TIME ZONE 'UTC')::date)
                 ON CONFLICT DO NOTHING RETURNING usage_day
             """, (user_id, request_id))
-            row = cur.fetchone()
-            if row is None:
+            if cur.fetchone() is None:
                 return None
-            usage_day = row[0]
             cur.execute("""
-                SELECT id FROM subscriptions
-                WHERE user_id=%s AND starts_at <= NOW() AND ends_at > NOW()
-                ORDER BY ends_at DESC, id DESC LIMIT 1 FOR UPDATE
-            """, (user_id,))
-            sub = cur.fetchone()
-            if sub:
-                cur.execute("UPDATE subscriptions SET used=used+1 WHERE id=%s AND used < message_limit RETURNING message_limit-used", (sub[0],))
-            else:
-                cur.execute("""
-                    INSERT INTO daily_message_usage (user_id,usage_day,used) VALUES (%s,%s,1)
-                    ON CONFLICT (user_id,usage_day) DO UPDATE SET used=daily_message_usage.used+1
-                    WHERE daily_message_usage.used < %s RETURNING %s-used
-                """, (user_id, usage_day, FREE_DAILY_MESSAGES, FREE_DAILY_MESSAGES))
-            remaining = cur.fetchone()
-            cur.execute("UPDATE chat_requests SET subscription_id=%s,status=%s WHERE user_id=%s AND request_id=%s",
-                        (sub[0] if sub else None, 'pending' if remaining else 'rejected', user_id, request_id))
-            return remaining[0] if remaining else -1
+                UPDATE chat_requests SET subscription_id=NULL,status='pending'
+                WHERE user_id=%s AND request_id=%s
+            """, (user_id, request_id))
+            return 0
 
 
 def settle_chat(user_id, request_id, success):
-    """A failed settlement can be retried; the state transition prevents double refunds."""
+    """A failed settlement can be retried; chat itself has no quota to refund."""
     with db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 UPDATE chat_requests SET status=%s WHERE user_id=%s AND request_id=%s AND status='pending'
-                RETURNING subscription_id,usage_day
+                RETURNING request_id
             """, ('completed' if success else 'refunded', user_id, request_id))
-            row = cur.fetchone()
-            if row is None or success:
-                return
-            if row[0] is not None:
-                cur.execute("UPDATE subscriptions SET used=GREATEST(0,used-1) WHERE id=%s AND user_id=%s", (row[0], user_id))
-            else:
-                cur.execute("UPDATE daily_message_usage SET used=GREATEST(0,used-1) WHERE user_id=%s AND usage_day=%s", (user_id, row[1]))
 
 
 def _deepseek_api_key():
@@ -330,9 +296,14 @@ def payment_qr(method):
 @app.get("/membership/plans")
 def membership_plans():
     return jsonify(plans=[
-        {"id":"free","price_cny_fen":0,"messages_per_day":FREE_DAILY_MESSAGES},
-        *[{"id":k,**v,"period_days":30} for k,v in PAID_PLANS.items()]
-    ], payments_enabled=payments_ready())
+        {"id":"free","price_cny_fen":0,"chat_unlimited":True,
+         "learning_messages_per_day":FREE_DAILY_MESSAGES,
+         "messages_per_day":FREE_DAILY_MESSAGES,"learning_ai":True},
+        *[{"id":k,"price_cny_fen":v["price_cny_fen"],"messages":v["messages"],
+           "learning_credits":v["messages"],"period_days":30,"learning_ai":True}
+          for k,v in PAID_PLANS.items()]
+    ], payments_enabled=payments_ready(),
+       chat_free_daily=FREE_DAILY_MESSAGES)
 
 
 
@@ -452,7 +423,7 @@ async function load(){
   for(const o of d.orders){
    const card=document.createElement("article");card.className="order";
    const h=document.createElement("strong");h.textContent="订单 #"+o.id+" · ¥"+o.amount_cny;card.appendChild(h);
-   field(card,"会员套餐",o.plan==="pro"?"高级会员":"基础会员");
+   field(card,"AI 伴学会员",o.plan==="pro"?"高级会员":"基础会员");
    field(card,"手机号",o.phone);field(card,"支付方式",o.payment_method==="alipay"?"支付宝":"微信");
    field(card,"付款信息",o.payer_note);field(card,"订单参考号",o.reference);field(card,"创建时间",o.created_at);
    const label=document.createElement("label");label.textContent="核实后的支付流水号";card.appendChild(label);
@@ -461,7 +432,7 @@ async function load(){
    const no=document.createElement("button");no.textContent="拒绝订单";no.className="danger";card.appendChild(no);
    async function review(decision){
     if(decision==="approve" && input.value.trim().length<6){alert("请先填写核实后的支付流水号");return;}
-    if(!confirm(decision==="approve"?"已在收款账户核实到账且金额正确，确认开通会员？":"确定拒绝该订单？"))return;
+    if(!confirm(decision==="approve"?"已在收款账户核实到账且金额正确，确认开通 AI 伴学会员？":"确定拒绝该订单？"))return;
     yes.disabled=true;no.disabled=true;
     try{await call("/admin/membership/orders/"+o.id+"/review","POST",{decision,payment_reference:input.value.trim()});await load();}
     catch(e){alert(e.message);yes.disabled=false;no.disabled=false;}
@@ -576,13 +547,21 @@ def account_usage():
                 """, (session["user_id"],))
                 row = cur.fetchone()
         used = row[0] if row else 0
+        payload = dict(plan="free", chat_free=True, chat_unlimited=True,
+                       limit=None, used=0, remaining=None, reset="00:00 UTC",
+                       learning_free_limit=FREE_DAILY_MESSAGES,
+                       learning_free_used=used,
+                       learning_free_remaining=max(0, FREE_DAILY_MESSAGES - used))
         sub = get_active_subscription(session["user_id"])
         if sub:
-            return jsonify(plan=sub[1], limit=sub[3], used=sub[4],
-                           remaining=max(0,sub[3]-sub[4]), expires_at=sub[2].isoformat())
-        return jsonify(plan="free", limit=FREE_DAILY_MESSAGES,
-                       used=used, remaining=max(0, FREE_DAILY_MESSAGES-used),
-                       reset="00:00 UTC")
+            payload["membership"] = dict(
+                plan=sub[1], learning_limit=sub[3], learning_used=sub[4],
+                learning_remaining=max(0, sub[3] - sub[4]),
+                expires_at=sub[2].isoformat(),
+            )
+        else:
+            payload["membership"] = None
+        return jsonify(payload)
     except Exception:
         app.logger.exception("Usage lookup failed")
         return jsonify(error="暂时无法查询额度"), 503
@@ -648,10 +627,10 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <section id="chatArea" class="hidden"><a class="learning-home-entry" href="/learning" aria-label="进入 AI 伴学学习中心"><span class="learning-symbol" aria-hidden="true">✦</span><span class="learning-copy"><strong>AI 伴学</strong><small>雅思 · 四级 · 六级｜每日计划 · 专项练习</small></span><span class="learning-arrow" aria-hidden="true">›</span></a><aside class="fish-side" id="fishSide"><div class="side-user">已登录：<span id="sideWho"></span></div><nav aria-label="学习导航"><a href="/learning" style="display:block;padding:14px 0;color:inherit;text-decoration:none;font-weight:600">✦ AI 伴学 →</a></nav><details id="appearance"><summary><svg aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M12 3a9 9 0 0 1 0 18"/></svg>外观设置<span id="appearanceChoice">跟随系统</span></summary><fieldset id="themeOptions"><legend>主题</legend><label><input type="radio" name="chat-theme" value="system" checked>跟随系统</label><label><input type="radio" name="chat-theme" value="light">浅色模式</label><label><input type="radio" name="chat-theme" value="dark">深色模式</label></fieldset></details><div id="sideContents"></div></aside><button class="fish-side-toggle" id="sideToggle" type="button" aria-expanded="false">☰ 菜单</button><p class="legacy-account">已登录：<span id="who"></span> <button id="logoutBtn">退出</button></p>
 <details id="security"><summary>账号安全 · 修改密码</summary><input id="oldPassword" type="password" autocomplete="current-password" placeholder="当前密码"><input id="newPassword" type="password" autocomplete="new-password" placeholder="新密码（至少10位，包含不同类型字符）"><button id="changePasswordBtn">修改密码</button></details>
 <details id="membership"><summary>✦ fishyeah 会员中心</summary>
-<p class="member-intro">解锁更多对话额度 · 轻松使用 fishyeah Chat</p>
+<p class="member-intro">fishyeah Chat 不限次数。AI 伴学每天免费 5 条，用完后开通会员继续使用。</p>
 <div class="member-cards">
-<div class="member-card"><h3>基础会员</h3><div class="price">¥9.9<small> / 30天</small></div><p>300 条 AI 消息<br>适合日常学习和轻度使用</p></div>
-<div class="member-card featured"><h3>✦ 高级会员</h3><div class="price">¥19.9<small> / 30天</small></div><p>1,000 条 AI 消息<br>适合经常使用 AI 的用户</p></div>
+<div class="member-card"><h3>基础会员</h3><div class="price">¥9.9<small> / 30天</small></div><p>300 次 AI 伴学<br>适合日常练习</p></div>
+<div class="member-card featured"><h3>✦ 高级会员</h3><div class="price">¥19.9<small> / 30天</small></div><p>1,000 次 AI 伴学<br>适合高频练习</p></div>
 </div>
 <label for="memberPlan">选择套餐</label>
 <select id="memberPlan"><option value="basic">基础会员 · ¥9.9</option><option value="pro">高级会员 · ¥19.9</option></select>
@@ -662,7 +641,7 @@ button:disabled{opacity:.55}#chat{height:45vh;min-height:220px;overflow:auto;bor
 <div id="orderResult" aria-live="polite">订单创建后将在这里显示订单信息。</div><div id="qrPanel" class="hidden" style="text-align:center;margin:12px 0"><p id="qrTitle"></p><img id="paymentQR" alt="收款二维码" width="240" height="240" style="max-width:100%;image-rendering:pixelated;border-radius:12px"><p class="member-safe">请先核对金额。付款后填写支付时间和凭证信息，等待人工核实。</p></div><div id="paymentProof" class="hidden"><label for="payerNote">付款信息（付款时间、支付平台订单号等）</label><input id="payerNote" maxlength="160" placeholder="例：10月17日 20:30，支付订单号末6位123456"><button id="submitProofBtn">我已付款，提交核实信息</button></div>
 <p class="member-safe">当前使用个人收款码人工审核：请核对收款人及金额，付款后保存支付凭证；到账确认后才开通会员，不会自动扣费。</p>
 </details>
-<div class="ui-actions"><button id="newChatBtn" type="button">＋ 新对话</button></div><p id="quotaInfo">免费版每天可发送5条消息（UTC 00:00重置）</p><div id="chat"><div class="chat-row from-ai"><img class="chat-avatar" src="/app-icon" alt="fishyeah Chat"><div class="msg">你好，我是 fishyeah Chat。</div></div></div>
+<div class="ui-actions"><button id="newChatBtn" type="button">＋ 新对话</button></div><p id="quotaInfo">fishyeah Chat 不限次数；AI 伴学每天免费 5 条（UTC 00:00重置）</p><div id="chat"><div class="chat-row from-ai"><img class="chat-avatar" src="/app-icon" alt="fishyeah Chat"><div class="msg">你好，我是 fishyeah Chat。</div></div></div>
 <div class="chat-composer"><input id="message" aria-label="输入你的问题" placeholder="输入你的问题..."><button id="sendBtn" type="button" aria-label="发送消息" title="发送消息"><span aria-hidden="true">↑</span></button></div></section>
 <p id="notice" role="status"></p></main>
 <script src="/static/chat-stream.js"></script>
@@ -680,7 +659,7 @@ async function api(path,data){
  return body;
 }
 async function refreshMembership(){try{const r=await fetch("/membership/plans");if(r.ok){const d=await r.json();if(!d.payments_enabled){$("createOrderBtn").disabled=true;$("createOrderBtn").textContent="支付尚未开放";$("orderResult").textContent="会员页面已上线，支付尚未开放。请勿转账。";}else{$("createOrderBtn").disabled=false;$("createOrderBtn").textContent="创建会员订单";}}}catch(e){}}
-async function refreshQuota(){try{const r=await fetch("/account/usage");if(r.ok){const d=await r.json();$("quotaInfo").textContent=(d.plan==="free"?"免费版":"会员 "+d.plan)+"：剩余 "+d.remaining+"/"+d.limit+" 条"+(d.plan==="free"?"（UTC 00:00重置）":"（当前会员周期）");}}catch(e){}}
+async function refreshQuota(){try{const r=await fetch("/account/usage");if(r.ok){const d=await r.json();let text="fishyeah Chat 不限次数";if(d.membership){text+=" · AI 伴学会员 "+d.membership.plan+"：剩余 "+d.membership.learning_remaining+"/"+d.membership.learning_limit+" 次";}else{text+=" · AI 伴学免费剩余 "+d.learning_free_remaining+"/"+d.learning_free_limit+" 条（UTC 00:00重置）";}$("quotaInfo").textContent=text;}}catch(e){}}
 function showUser(phone){if(phone){refreshQuota();refreshMembership();}$("auth").classList.toggle("hidden",!!phone);$("chatArea").classList.toggle("hidden",!phone);$("who").textContent=phone||"";$("sideWho").textContent=phone||"";notice("");}
 async function authenticate(mode){
  const phone=$("phone").value.trim(),password=$("password").value;
@@ -930,7 +909,7 @@ def chat():
                 raise RuntimeError("Empty or interrupted upstream response")
             settle_chat(user_id, request_id, True)
             reserved = False
-            yield {"type": "done", "remaining": remaining}
+            yield {"type": "done", "remaining": None}
         except Exception:
             app.logger.exception("Chat request failed")
             if reserved:
