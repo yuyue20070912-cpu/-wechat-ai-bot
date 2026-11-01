@@ -33,10 +33,16 @@ def submit(c, payload=None, **kwargs):
 
 
 def counts(user):
+    """Return (membership learning credits used, daily learning call budget used)."""
     with bot.db_connection() as conn:
-        messages = conn.execute('SELECT COALESCE(SUM(used),0) FROM daily_message_usage WHERE user_id=%s', (user,)).fetchone()[0]
+        membership = conn.execute('SELECT COALESCE(SUM(used),0) FROM subscriptions WHERE user_id=%s', (user,)).fetchone()[0]
         calls = conn.execute('SELECT COALESCE(SUM(calls),0) FROM learning_user_daily_usage WHERE user_id=%s', (user,)).fetchone()[0]
-    return messages, calls
+    return membership, calls
+
+
+def chat_used(user):
+    with bot.db_connection() as conn:
+        return conn.execute('SELECT COALESCE(SUM(used),0) FROM daily_message_usage WHERE user_id=%s', (user,)).fetchone()[0]
 
 
 
@@ -59,8 +65,10 @@ def test_all_exams_and_skills(user, ai, exam, skill):
     assert ai.options == [dict(timeout=45, max_retries=0)]
     assert json.loads(args['messages'][1]['content'])['exam'] == exam
     history = c.get('/api/learning/practice').json
-    assert history['usage']['message_remaining'] == 4 and history['usage']['calls_remaining'] == 9
+    assert history['usage']['message_remaining'] == 999 and history['usage']['calls_remaining'] == 9
+    assert history['usage']['membership_required'] is True
     assert history['attempts'][0]['feedback'] == response.json['feedback']
+    assert chat_used(user) == 0
 
 
 @pytest.mark.parametrize('method,path', [('get', '/api/learning/questions'), ('get', '/api/learning/practice'),
@@ -140,25 +148,34 @@ def test_failures_refund_but_consume_call_budget(user, ai, failure):
     assert c.get('/api/learning/practice').json['attempts'][0]['status'] == 'refunded'
 
 
-def test_daily_free_and_user_caps(user, ai, monkeypatch):
+def test_daily_call_caps_do_not_consume_free_chat(user, ai, monkeypatch):
     c = client(user)
     monkeypatch.setenv('LEARNING_USER_DAILY_CALLS', '2')
     assert submit(c).status_code == submit(c).status_code == 200
     assert submit(c).status_code == 429 and len(ai.calls) == 2
-    assert counts(user) == (2, 2)
-    monkeypatch.setenv('LEARNING_USER_DAILY_CALLS', '10')
-    for _ in range(3): assert submit(c).status_code == 200
+    assert counts(user) == (2, 2) and chat_used(user) == 0
+    # Chat free quota is independent of AI 伴学 membership credits.
+    assert bot.reserve_chat(user, str(uuid4())) == 4
+    assert chat_used(user) == 1
+    monkeypatch.setenv('LEARNING_USER_DAILY_CALLS', '3')
+    assert submit(c).status_code == 200
     assert submit(c).status_code == 429
-    assert counts(user) == (5, 5) and len(ai.calls) == 5
-    # Shared allowance means an existing chat also cannot reserve a sixth message.
-    assert bot.reserve_chat(user, str(uuid4())) == -1
+    assert counts(user) == (3, 3) and chat_used(user) == 1
+
+
+def test_learning_requires_membership(user, monkeypatch):
+    monkeypatch.setenv('LEARNING_AI_ENABLED', '1')
+    assert submit(client(user)).status_code == 402
+    assert counts(user) == (0, 0) and chat_used(user) == 0
 
 
 def test_global_cap_across_users(user, ai, monkeypatch):
+    from conftest import grant_learning_membership
     monkeypatch.setenv('LEARNING_GLOBAL_DAILY_CALLS', '1')
     assert submit(client(user)).status_code == 200
     with bot.db_connection() as conn:
         other = conn.execute("INSERT INTO users(phone,password_hash) VALUES ('13900000002','test') RETURNING id").fetchone()[0]
+    grant_learning_membership(other)
     assert submit(client(other)).status_code == 429
     assert counts(other) == (0, 0) and len(ai.calls) == 1
 
@@ -188,6 +205,7 @@ def test_concurrent_duplicate_and_pending_requests(user, ai):
 def test_paid_quota_refund_and_original_day(user, ai):
     c = client(user)
     with bot.db_connection() as conn:
+        conn.execute("UPDATE subscriptions SET ends_at=NOW()-INTERVAL '1 hour' WHERE user_id=%s", (user,))
         sub = conn.execute("""INSERT INTO subscriptions(user_id,plan,starts_at,ends_at,message_limit,payment_reference)
             VALUES (%s,'basic',NOW()-INTERVAL '1 day',NOW()+INTERVAL '1 day',2,'learning-paid') RETURNING id""", (user,)).fetchone()[0]
     assert submit(c).status_code == 200
@@ -195,15 +213,16 @@ def test_paid_quota_refund_and_original_day(user, ai):
     assert submit(c).status_code == 502
     with bot.db_connection() as conn:
         assert conn.execute('SELECT used FROM subscriptions WHERE id=%s', (sub,)).fetchone()[0] == 1
-    assert counts(user) == (0, 2)
+    assert counts(user) == (1, 2)
 
 
 def test_crash_recovery_original_date_and_idempotency(user):
+    from conftest import grant_learning_membership
+    grant_learning_membership(user, messages=5, reference='crash-recovery')
     key = str(uuid4())
     accounting.reserve(bot.db_connection, user, key, QUESTIONS['ielts-writing-1-v1'], 'answer', bot.MODEL, (10, 200), 5)
     with bot.db_connection() as conn:
         conn.execute("UPDATE learning_attempts SET created_at=NOW()-INTERVAL '6 minutes',usage_day=usage_day-1")
-        conn.execute('UPDATE daily_message_usage SET usage_day=usage_day-1')
     assert accounting.recover(bot.db_connection) == 1
     assert accounting.recover(bot.db_connection) == 0
     assert not accounting.finish(bot.db_connection, user, key)
@@ -222,13 +241,14 @@ def test_refund_outage_recovers(user, ai, monkeypatch):
     assert accounting.recover(bot.db_connection) == 1 and counts(user) == (0, 1)
 
 
-def test_shared_chat_quota_reservation_concurrency(user, ai):
-    def chat(): return bot.reserve_chat(user, str(uuid4()))
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        futures = [pool.submit(chat) for _ in range(4)] + [pool.submit(lambda: submit(client(user))) for _ in range(2)]
-        results = [f.result() for f in futures]
-    assert counts(user)[0] <= 5
-    assert sum(r >= 0 for r in results[:4]) + sum(r.status_code == 200 for r in results[4:]) == counts(user)[0]
+def test_chat_and_learning_quotas_are_independent(user, ai):
+    assert submit(client(user)).status_code == 200
+    assert submit(client(user)).status_code == 200
+    assert counts(user) == (2, 2) and chat_used(user) == 0
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda _: bot.reserve_chat(user, str(uuid4())), range(4)))
+    assert sum(r >= 0 for r in results) == 4 and chat_used(user) == 4
+    assert counts(user) == (2, 2)
 
 
 def test_failure_budget_cannot_be_bypassed_by_refunds(user, ai, monkeypatch):
@@ -251,6 +271,8 @@ def test_rate_limit_and_oversized_requests(user, ai):
 
 
 def test_refund_transaction_rolls_back(user, monkeypatch):
+    from conftest import grant_learning_membership
+    grant_learning_membership(user, messages=5, reference='refund-rollback')
     key = str(uuid4())
     accounting.reserve(bot.db_connection, user, key, QUESTIONS['ielts-writing-1-v1'], 'answer', bot.MODEL, (10, 200), 5)
     with monkeypatch.context() as patch:
@@ -279,10 +301,13 @@ def test_successful_settlement_response_outage_replays(user, ai, monkeypatch):
 
 
 def test_global_concurrent_calls_cannot_overspend(user, ai, monkeypatch):
+    from conftest import grant_learning_membership
     monkeypatch.setenv('LEARNING_GLOBAL_DAILY_CALLS', '3')
     with bot.db_connection() as conn:
         others = [conn.execute('INSERT INTO users(phone,password_hash) VALUES (%s,%s) RETURNING id',
                   ('1390000000' + str(i), 'test')).fetchone()[0] for i in range(1, 7)]
+    for uid in others:
+        grant_learning_membership(uid)
     with ThreadPoolExecutor(max_workers=6) as pool:
         responses = list(pool.map(lambda uid: submit(client(uid)).status_code, others))
     assert responses.count(200) == 3 and responses.count(429) == 3
