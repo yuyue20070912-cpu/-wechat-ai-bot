@@ -457,7 +457,7 @@ async function load(){
    const no=document.createElement("button");no.textContent="拒绝订单";no.className="danger";card.appendChild(no);
    async function review(decision){
     if(decision==="approve" && input.value.trim().length<6){alert("请先填写核实后的支付流水号");return;}
-    if(!confirm(decision==="approve"?"已在收款账户核实到账且金额正确，确认开通会员？":"确定拒绝该订单？"))return;
+    if(!confirm(decision==="approve"?"已在收款账户核实到账且金额正确，确认开通 AI 伴学会员？":"确定拒绝该订单？"))return;
     yes.disabled=true;no.disabled=true;
     try{await call("/admin/membership/orders/"+o.id+"/review","POST",{decision,payment_reference:input.value.trim()});await load();}
     catch(e){alert(e.message);yes.disabled=false;no.disabled=false;}
