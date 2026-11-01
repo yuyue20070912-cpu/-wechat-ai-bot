@@ -183,7 +183,7 @@ def test_ai_concurrent_request_and_failure_refund(user,ai,monkeypatch):
     s=write(c,s,{'s1':'To stay healthy, I walk to school.'},'submit').json['session'];path=f'mocks/{s["id"]}/ai/s1'
     started,release=Event(),Event()
     def fail(**kwargs):started.set();assert release.wait(5);raise TimeoutError()
-    ai.client.responses.create=fail
+    ai.client.chat.completions.create=fail
     with ThreadPoolExecutor(max_workers=2) as pool:
         first=pool.submit(lambda:call(client(user),path));assert started.wait(5)
         try:assert call(client(user),path).status_code==409

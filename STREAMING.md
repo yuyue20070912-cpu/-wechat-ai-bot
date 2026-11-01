@@ -4,14 +4,15 @@
 `ready` → 多个 `delta` → `done`；失败为 `error`。认证、参数错误仍返回 HTTP 4xx。
 流已开始后业务错误通过 error 帧返回，不能只按 HTTP 200 判断成功。
 未传 stream 的客户端继续收到 JSON reply；没有自动重试或自动重发。
-原有 OPENAI_MODEL 和默认模型不变，不引入付费服务。
+模型由 `DEEPSEEK_MODEL`（或兼容旧名 `OPENAI_MODEL`）配置，默认 `deepseek-chat`；
+上游为 DeepSeek 的 OpenAI 兼容 Chat Completions 接口。
 
 ## 性能变化
 
-- 收到 OpenAI Responses API 的文本 delta 就传给浏览器，无需等待完整回复；
-  收到 response.completed/done 后立即结束，不额外等待 HTTP 连接关闭；
+- 收到 DeepSeek Chat Completions 流式文本 delta 就传给浏览器，无需等待完整回复；
+  收到 finish_reason=stop / done 后立即结束，不额外等待 HTTP 连接关闭；
   页面在发请求之前显示“AI 正在回复…”，每个增量立即更新同一条消息。
-- 复用 OpenAI HTTP 客户端与 PostgreSQL 连接池（每进程最多 8 个连接）；
+- 复用 DeepSeek（OpenAI 兼容 SDK）HTTP 客户端与 PostgreSQL 连接池（每进程最多 8 个连接）；
   建表成功后每进程只执行一次，失败不会缓存成功状态。
 - 会员检查和额度预占在一个数据库事务中完成；生成期间不持有连接或行锁。
   原有每日额度主键、会员索引继续使用，新增 pending 请求恢复索引。
@@ -46,7 +47,7 @@ python -m pytest -q
 node tests/test_stream.js
 ```
 
-测试使用 pgserver 启动独立临时 PostgreSQL，不访问生产数据库或真实 OpenAI，
+测试使用 pgserver 启动独立临时 PostgreSQL，不访问生产数据库或真实 DeepSeek，
 不产生 AI 费用。覆盖成功流、失败/空流/中断、并发去重和额度上限、
 免费跨日与会员退款、退款事务回滚及异常恢复、原有登录/改密/支付审核，
 以及中文 UTF-8 分块解析。GitHub Actions 在 PR 上运行相同检查。
@@ -60,7 +61,8 @@ node tests/test_stream.js
 3. 检查 Render 是否为休眠服务、代理是否缓冲流、启动命令是否覆盖 Gunicorn 配置。
    免费实例冷启动无法靠流式输出消除，本改动不升级套餐或增加服务。
 4. 满意后由你手动合并 PR；若希望手动上线，先在 Render 关闭 Auto-Deploy，
-   再手动部署选定提交。安装新增 psycopg-pool，保持所有原环境变量不变。
+   再手动部署选定提交。安装新增 psycopg-pool；配置 `DEEPSEEK_API_KEY`
+   （过渡期仍可读 `OPENAI_API_KEY`）与可选 `DEEPSEEK_MODEL` / `DEEPSEEK_BASE_URL`。
    新表由应用首次初始化自动创建，原表和业务数据不删除。
 5. 监控首字延迟、错误率及 pending 请求。需要回滚时手动部署旧提交；
    回滚前先恢复 pending 记录，旧版不会处理新的请求账本。

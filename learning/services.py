@@ -34,20 +34,27 @@ def analyze(provider, model, question, answer):
         score 仅为本次建议的内部参考指标，不能声称为考试成绩或客观诊断正确率。'''
     if question.get('mock'):
         system+='\n本次是缩减题量的分项模考。只按该文字题给 0–100 学习参考分；不得换算 IELTS band、CET 710 分总分或官方成绩，不评价文字口语的发音与真实流利度。'
+    system += '\n请只输出一个符合下列 JSON schema 的 JSON 对象，不要输出其它文字：\n' + json.dumps(
+        FEEDBACK_SCHEMA, ensure_ascii=False)
     if len((system + user_input + json.dumps(FEEDBACK_SCHEMA)).encode('utf-8')) > 20000:
         raise ValueError('Input exceeds learning cost bound')
-    # Reuse host SDK connection pool, with explicit timeout and zero automatic retries.
-    response = provider().with_options(timeout=TIMEOUT_SECONDS, max_retries=0).responses.create(
-        model=model, instructions=system, input=user_input,
-        max_output_tokens=MAX_OUTPUT_TOKENS, store=False,
-        text={'format': {'type': 'json_schema', 'name': 'learning_feedback',
-                         'strict': True, 'schema': FEEDBACK_SCHEMA}},
+    # DeepSeek Chat Completions; reuse host SDK pool with explicit timeout and no retries.
+    response = provider().with_options(timeout=TIMEOUT_SECONDS, max_retries=0).chat.completions.create(
+        model=model,
+        messages=[
+            {'role': 'system', 'content': system},
+            {'role': 'user', 'content': user_input},
+        ],
+        max_tokens=MAX_OUTPUT_TOKENS,
+        response_format={'type': 'json_object'},
     )
-    if response.status != 'completed' or not response.output_text or len(response.output_text) > 16000:
+    choice = response.choices[0] if getattr(response, 'choices', None) else None
+    content = (getattr(getattr(choice, 'message', None), 'content', None) or '').strip()
+    if choice is None or getattr(choice, 'finish_reason', None) != 'stop' or not content or len(content) > 16000:
         raise ValueError('Incomplete AI feedback')
-    feedback = validate_feedback(json.loads(response.output_text))
+    feedback = validate_feedback(json.loads(content))
     usage = getattr(response, 'usage', None)
-    tokens = tuple(getattr(usage, name, None) for name in ('input_tokens', 'output_tokens'))
+    tokens = tuple(getattr(usage, name, None) for name in ('prompt_tokens', 'completion_tokens'))
     if any(token is not None and (type(token) is not int or token < 0) for token in tokens):
         raise ValueError('Invalid usage metadata')
     return feedback, tokens

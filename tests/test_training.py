@@ -54,10 +54,10 @@ def test_all_exams_and_skills(user, ai, exam, skill):
     assert response.json['feedback']['reference_answer'] == QUESTIONS[questions[0]['id']]['reference']
     assert counts(user) == (1, 1)
     args = ai.calls[0]
-    assert args['model'] == bot.MODEL and args['store'] is False
-    assert args['max_output_tokens'] == 1600 and args['text']['format']['strict'] is True
+    assert args['model'] == bot.MODEL
+    assert args['max_tokens'] == 1600 and args['response_format'] == {'type': 'json_object'}
     assert ai.options == [dict(timeout=45, max_retries=0)]
-    assert json.loads(args['input'])['exam'] == exam
+    assert json.loads(args['messages'][1]['content'])['exam'] == exam
     history = c.get('/api/learning/practice').json
     assert history['usage']['message_remaining'] == 4 and history['usage']['calls_remaining'] == 9
     assert history['attempts'][0]['feedback'] == response.json['feedback']
@@ -122,9 +122,15 @@ def test_failures_refund_but_consume_call_budget(user, ai, failure):
         value = dict(FEEDBACK)
         if failure == 'score': value['score'] = 101
         if failure == 'schema': value['strengths'] = []
-        return NS(status='incomplete' if failure == 'incomplete' else 'completed',
-                  output_text={'refusal': '', 'json': 'broken', 'empty': ''}.get(failure, json.dumps(value)))
-    ai.client.responses.create = create
+        content = {'refusal': '', 'json': 'broken', 'empty': ''}.get(failure, json.dumps(value))
+        return NS(
+            choices=[NS(
+                finish_reason='length' if failure == 'incomplete' else 'stop',
+                message=NS(content=content),
+            )],
+            usage=NS(prompt_tokens=10, completion_tokens=10),
+        )
+    ai.client.chat.completions.create = create
     c = client(user); payload = body()
     response = submit(c, payload)
     assert response.status_code == 502 and b'secret' not in response.data
@@ -159,11 +165,11 @@ def test_global_cap_across_users(user, ai, monkeypatch):
 
 def test_concurrent_duplicate_and_pending_requests(user, ai):
     started, release = Event(), Event()
-    original = ai.client.responses.create
+    original = ai.client.chat.completions.create
     def slow(**kwargs):
         started.set(); assert release.wait(5)
         return original(**kwargs)
-    ai.client.responses.create = slow
+    ai.client.chat.completions.create = slow
     payload = body()
     with ThreadPoolExecutor(max_workers=3) as pool:
         first = pool.submit(lambda: submit(client(user), payload))
@@ -185,7 +191,7 @@ def test_paid_quota_refund_and_original_day(user, ai):
         sub = conn.execute("""INSERT INTO subscriptions(user_id,plan,starts_at,ends_at,message_limit,payment_reference)
             VALUES (%s,'basic',NOW()-INTERVAL '1 day',NOW()+INTERVAL '1 day',2,'learning-paid') RETURNING id""", (user,)).fetchone()[0]
     assert submit(c).status_code == 200
-    ai.client.responses.create = lambda **kwargs: (_ for _ in ()).throw(TimeoutError())
+    ai.client.chat.completions.create = lambda **kwargs: (_ for _ in ()).throw(TimeoutError())
     assert submit(c).status_code == 502
     with bot.db_connection() as conn:
         assert conn.execute('SELECT used FROM subscriptions WHERE id=%s', (sub,)).fetchone()[0] == 1
@@ -206,7 +212,7 @@ def test_crash_recovery_original_date_and_idempotency(user):
 
 
 def test_refund_outage_recovers(user, ai, monkeypatch):
-    ai.client.responses.create = lambda **kwargs: (_ for _ in ()).throw(TimeoutError())
+    ai.client.chat.completions.create = lambda **kwargs: (_ for _ in ()).throw(TimeoutError())
     with monkeypatch.context() as patch:
         patch.setattr(accounting, 'finish', lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError()))
         assert submit(client(user)).status_code == 502
@@ -227,7 +233,7 @@ def test_shared_chat_quota_reservation_concurrency(user, ai):
 
 def test_failure_budget_cannot_be_bypassed_by_refunds(user, ai, monkeypatch):
     monkeypatch.setenv('LEARNING_USER_DAILY_CALLS', '1')
-    ai.client.responses.create = lambda **kwargs: (_ for _ in ()).throw(TimeoutError())
+    ai.client.chat.completions.create = lambda **kwargs: (_ for _ in ()).throw(TimeoutError())
     c = client(user)
     assert submit(c).status_code == 502
     assert submit(c).status_code == 429 and counts(user) == (0, 1)
@@ -294,4 +300,5 @@ def test_unicode_answer_and_input_cost_bound(user, ai):
     assert c.post('/api/learning/attempts', data=payload, content_type='application/json', headers=csrf(c)).status_code == 200
     assert len(ai.calls) == 1
     from learning.prompts import SYSTEM, FEEDBACK_SCHEMA
-    assert len((SYSTEM + ai.calls[0]['input'] + json.dumps(FEEDBACK_SCHEMA)).encode()) <= 20000
+    user_input = ai.calls[0]['messages'][1]['content']
+    assert len((SYSTEM + user_input + json.dumps(FEEDBACK_SCHEMA)).encode()) <= 20000
