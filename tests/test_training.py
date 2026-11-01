@@ -154,19 +154,28 @@ def test_daily_call_caps_do_not_consume_free_chat(user, ai, monkeypatch):
     assert submit(c).status_code == submit(c).status_code == 200
     assert submit(c).status_code == 429 and len(ai.calls) == 2
     assert counts(user) == (2, 2) and chat_used(user) == 0
-    # Chat free quota is independent of AI 伴学 membership credits.
-    assert bot.reserve_chat(user, str(uuid4())) == 4
-    assert chat_used(user) == 1
+    assert bot.reserve_chat(user, str(uuid4())) == 0
+    assert chat_used(user) == 0
     monkeypatch.setenv('LEARNING_USER_DAILY_CALLS', '3')
     assert submit(c).status_code == 200
     assert submit(c).status_code == 429
-    assert counts(user) == (3, 3) and chat_used(user) == 1
+    assert counts(user) == (3, 3) and chat_used(user) == 0
 
 
-def test_learning_requires_membership(user, monkeypatch):
-    monkeypatch.setenv('LEARNING_AI_ENABLED', '1')
-    assert submit(client(user)).status_code == 402
-    assert counts(user) == (0, 0) and chat_used(user) == 0
+def test_learning_five_free_then_membership(user, ai):
+    with bot.db_connection() as conn:
+        conn.execute('DELETE FROM subscriptions WHERE user_id=%s', (user,))
+    c = client(user)
+    original = ai.client.chat.completions.create
+    ai.client.chat.completions.create = lambda **kwargs: (_ for _ in ()).throw(TimeoutError())
+    assert submit(c).status_code == 502 and chat_used(user) == 0
+    ai.client.chat.completions.create = original
+    for _ in range(5):
+        assert submit(c).status_code == 200
+    blocked = submit(c)
+    assert blocked.status_code == 402 and '免费 5 条' in blocked.json['error']
+    assert chat_used(user) == 5 and counts(user) == (0, 6)
+    assert bot.reserve_chat(user, str(uuid4())) == 0 and chat_used(user) == 5
 
 
 def test_global_cap_across_users(user, ai, monkeypatch):
@@ -247,7 +256,7 @@ def test_chat_and_learning_quotas_are_independent(user, ai):
     assert counts(user) == (2, 2) and chat_used(user) == 0
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(lambda _: bot.reserve_chat(user, str(uuid4())), range(4)))
-    assert sum(r >= 0 for r in results) == 4 and chat_used(user) == 4
+    assert results.count(0) == 4 and chat_used(user) == 0
     assert counts(user) == (2, 2)
 
 
